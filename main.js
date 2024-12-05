@@ -4,6 +4,7 @@ import { Star, Planet, Moon } from './HeavenlyBodies.js';
 const gameWindow = document.getElementById('gameWindow');
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000000000);
+let cameraTarget = null;
 const textureLoader = new THREE.TextureLoader();
 
 const renderer = new THREE.WebGLRenderer();
@@ -13,19 +14,19 @@ gameWindow.appendChild(renderer.domElement);
 const axesHelper = new THREE.AxesHelper(1000);
 scene.add(axesHelper);
 
-camera.position.z = 170000000;
+camera.position.z = 17000000;
 
 let bodies = [
-    new Planet('Mercury', 2440, 30, 5068224, { x: 57900000, y: 300, z: 0 }, { x: 0, y: -0.1, z: 0 }, { x: 0, y: 0, z: 0 }),
-    new Planet('Venus', 6052, 60, 20996760, { x: 108200000, y: 500, z: 0 }, { x: 0, y: -0.1, z: 0.1 }, { x: 0, y: 0, z: 0 }),
-    new Planet('Earth', 6371, 80, 86160, { x: 149600000, y: 700, z: 0 }, { x: 0, y: -0.1, z: -0.1 }, { x: 0, y: 0, z: 0 }),
-    new Planet('Mars', 3390, 80, 88560, { x: 227900000, y: 700, z: 0 }, { x: 0, y: -0.1, z: -0.1 }, { x: 0, y: 0, z: 0 }),
-    new Planet('Jupiter', 69911, 80, 35700, { x: 778600000, y: 700, z: 0 }, { x: 0, y: -0.1, z: -0.1 }, { x: 0, y: 0, z: 0 }),
-    new Planet('Saturn', 58232, 80, 37980, { x: 1433500000, y: 700, z: 0 }, { x: 0, y: -0.1, z: -0.1 }, { x: 0, y: 0, z: 0 }),
-    new Planet('Uranus', 25362, 80, 62040, { x: 2872500000, y: 700, z: 0 }, { x: 0, y: -0.1, z: -0.1 }, { x: 0, y: 0, z: 0 }),
-    new Planet('Neptune', 24622, 80, 57600, { x: 4495100000, y: 700, z: 0 }, { x: 0, y: -0.1, z: -0.1 }, { x: 0, y: 0, z: 0 }),
-    new Star('Sun', 695700, 200000000000000, 2114208, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }),
-    new Moon('Moon', 1737, 1, 2114208, { x: 149984399, y: 0, z: 0 }, { x: 0, y: -0.1, z: -0.10 }, { x: 0, y: 0, z: 0 }),
+    new Planet('Mercury', 2440, 30, 5068224, 20000, { x: 57900000, y: 300, z: 0 }, { x: 0, y: -0.1, z: 0 }, { x: 0, y: 0, z: 0 }),
+    new Planet('Venus', 6052, 60, 20996760, 20000, { x: 108200000, y: 500, z: 0 }, { x: 0, y: -0.1, z: 0.1 }, { x: 0, y: 0, z: 0 }),
+    new Planet('Earth', 6371, 80, 86160, 20000, { x: 149600000, y: 700, z: 0 }, { x: -29.8, y: -0, z: 0 }, { x: 0, y: 0, z: 0 }),
+    new Planet('Mars', 3390, 80, 88560, 20000, { x: 227900000, y: 700, z: 0 }, { x: -12.4, y: -5.3, z: -1.5 }, { x: 0, y: 0, z: 0 }),
+    new Planet('Jupiter', 69911, 80, 35700, 120000, { x: 778600000, y: 700, z: 0 }, { x: 13.1, y: 4.2, z: 2.5 }, { x: 10, y: 0, z: 0 }),
+    new Planet('Saturn', 58232, 80, 37980, 120000, { x: 1433500000, y: 700, z: 0 }, { x: 9.7, y: 4.2, z: 1.8 }, { x: 0, y: 0, z: 0 }),
+    new Planet('Uranus', 25362, 80, 62040, 120000, { x: 2872500000, y: 700, z: 0 }, { x: 6.8, y: 1.1, z: 1.4 }, { x: 0, y: 0, z: 0 }),
+    new Planet('Neptune', 24622, 80, 57600, 120000, { x: 4495100000, y: 700, z: 0 }, { x: 5.4, y: 0.7, z: 1.2 }, { x: 0, y: 0, z: 0 }),
+    new Star('Sun', 695700, 200000000000000, 2114208, 2000000, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }),
+    new Moon('Moon', 1737, 1, 2114208, 20000, { x: 149984399, y: 0, z: 0 }, { x: 0, y: 9.9, z: 2.2 }, { x: 0, y: 0, z: 0 }),
 ];
 
 let bodyMeshes = [];
@@ -44,7 +45,7 @@ bodies.forEach((body) => {
 });
 
 const G = 6.6743e-11; // N⋅m^{2}⋅kg^{−2}
-const dTime = 1; // Seconds
+const dTime = 1200; // Seconds
 
 // Gravity calculation function to apply forces between bodies
 function gravityCalculation(body1, body2) {
@@ -86,7 +87,12 @@ function animate() {
         bodyMeshes[index].position.copy(body.position); // Update the position of meshes
         bodyMeshes[index].rotation.y += body.angularVelocity * dTime; // Update the sidereel rotation of meshes
     });
-    
+
+    if (cameraTarget) {
+        camera.position.copy(cameraTarget.position).add(new THREE.Vector3(0, 0, cameraTarget.spectatingDistance));
+        camera.lookAt(cameraTarget.position);
+    }
+
     renderer.render(scene, camera);
 }
 
@@ -124,63 +130,47 @@ const keyboardBinds = {
     },
     '1': () => {
         console.log('Teleporting to Mercury');
-        camera.position.copy(bodies[0].position);
-        camera.position.copy(bodies[0].position).add(new THREE.Vector3(0, 0, 30000));
-        camera.lookAt(bodies[0].position);
+        cameraTarget = bodies[0];
     },
     '2': () => {
         console.log('Teleporting to Venus');
-        camera.position.copy(bodies[1].position);
-        camera.position.copy(bodies[1].position).add(new THREE.Vector3(0, 0, 30000));
-        camera.lookAt(bodies[1].position);
+        cameraTarget = bodies[1];
     },
     '3': () => {
         console.log('Teleporting to Earth');
-        camera.position.copy(bodies[2].position);
-        camera.position.copy(bodies[2].position).add(new THREE.Vector3(0, 0, 30000));
-        camera.lookAt(bodies[2].position);
+        cameraTarget = bodies[2];
     },
     '4': () => {
         console.log('Teleporting to Mars');
-        camera.position.copy(bodies[3].position);
-        camera.position.copy(bodies[3].position).add(new THREE.Vector3(0, 0, 30000));
-        camera.lookAt(bodies[3].position);
+        cameraTarget = bodies[3];
     },
     '5': () => {
         console.log('Teleporting to Jupiter');
-        camera.position.copy(bodies[4].position);
-        camera.position.copy(bodies[4].position).add(new THREE.Vector3(0, 0, 125000));
-        camera.lookAt(bodies[4].position);
+        cameraTarget = bodies[4];
     },
     '6': () => {
         console.log('Teleporting to Saturn');
-        camera.position.copy(bodies[5].position);
-        camera.position.copy(bodies[5].position).add(new THREE.Vector3(0, 0, 125000));
-        camera.lookAt(bodies[5].position);
+        cameraTarget = bodies[5];
     },
     '7': () => {
         console.log('Teleporting to Uranus');
-        camera.position.copy(bodies[6].position);
-        camera.position.copy(bodies[6].position).add(new THREE.Vector3(0, 0, 125000));
-        camera.lookAt(bodies[6].position);
+        cameraTarget = bodies[6];
     },
     '8': () => {
         console.log('Teleporting to Neptune');
-        camera.position.copy(bodies[7].position);
-        camera.position.copy(bodies[7].position).add(new THREE.Vector3(0, 0, 125000));
-        camera.lookAt(bodies[7].position);
+        cameraTarget = bodies[7];
     },
     '0': () => {
         console.log('Teleporting to Sun');
-        camera.position.copy(bodies[8].position);
-        camera.position.copy(bodies[8].position).add(new THREE.Vector3(0, 0, 1250000));
-        camera.lookAt(bodies[8].position);
+        cameraTarget = bodies[8];
     },
     '9': () => {
         console.log('Teleporting to Moon');
-        camera.position.copy(bodies[9].position);
-        camera.position.copy(bodies[9].position).add(new THREE.Vector3(0, 0, 30000));
-        camera.lookAt(bodies[9].position);
+        cameraTarget = bodies[9];
+    },
+    '-': () => {
+        console.log('Camera target set to null');
+        cameraTarget = null;
     }
 };
 

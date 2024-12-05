@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 
 class HeavenlyBodies {
-    constructor(name, radius, mass, sidereelTime, position = { x: 0, y: 0, z: 0 }, velocity = { x: 0, y: 0, z: 0 }) {
+    constructor(name, radius, mass, sidereelTime, spectatingDistance, position = { x: 0, y: 0, z: 0 }, velocity = { x: 0, y: 0, z: 0 }) {
         this.name = name;
         this.radius = radius;
         this.mass = mass;
+        this.spectatingDistance = spectatingDistance;
         this.sidereelTime = sidereelTime; //Seconds for complete rotation
         this.position = new THREE.Vector3(position.x, position.y, position.z);
         this.velocity = new THREE.Vector3(velocity.x, velocity.y, velocity.z);
