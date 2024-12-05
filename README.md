@@ -81,3 +81,8 @@ Defines base properties for all celestial objects:
 
 ## Screenshots
 ![Earth and Moon](./images/earth-and-moon.jpg)
+
+---
+
+## Credits
+[Solar System Textures](https://www.solarsystemscope.com/)
