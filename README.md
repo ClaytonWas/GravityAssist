@@ -28,18 +28,18 @@ A 3D solar system simulation using **Three.js** that models the gravitational in
 
 1. Clone the repository:
    ```bash
-   git clone <repository_url>
-   cd solar-system-simulation
+   git clone https://github.com/ClaytonWas/GravityAssist
+   cd GravityAssist
    ```
 
 2. Install dependencies:
    ```bash
-   npm install
+   npm ci
    ```
 
 3. Run the application:
    ```bash
-   npm start
+   npx vite
    ```
    
 ---
