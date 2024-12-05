@@ -22,7 +22,6 @@ A 3D solar system simulation using **Three.js** that models the gravitational in
 | `0`         | Teleport to the Sun.                                |
 | `-`         | Unlock camera.                                      |
 
-
 ---
 
 ## Installation
@@ -42,41 +41,7 @@ A 3D solar system simulation using **Three.js** that models the gravitational in
    ```bash
    npm start
    ```
-
----
-
-## File Structure
-
-```plaintext
-.
-├── textures/           # Texture files for planets and the Sun
-├── main.js             # Core simulation logic
-├── HeavenlyBodies.js   # Classes for celestial objects (Star, Planet, Moon)
-├── index.html          # Entry point for the app
-├── style.css           # Optional styling
-└── README.md           # Project documentation
-```
-
----
-
-## Key Classes and Logic
-
-### `HeavenlyBodies`
-Defines base properties for all celestial objects:
-- `name`, `radius`, `mass`, `position`, `velocity`, `sidereelTime`.
-
-### `main.js`
-- Initializes the scene, camera, and renderer.
-- Adds celestial bodies with realistic masses, radii, and orbits.
-- Calculates gravitational interactions in `gravityCalculation()`.
-
-### Gravity Simulation
-- Newtonian gravity is calculated using:
-  \[
-  F = \frac{G \cdot m_1 \cdot m_2}{r^2}
-  \]
-- Positions and velocities of bodies are updated iteratively.
-
+   
 ---
 
 ## Screenshots
