@@ -28,7 +28,7 @@ A 3D solar system simulation using **Three.js** that models the gravitational in
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/ClaytonWas/GravityAssist
+   git clone https://github.com/ClaytonWas/GravityAssist.git
    cd GravityAssist
    ```
 
