@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'https://unpkg.com/three@0.158.0/build/three.module.js';
 
 class HeavenlyBodies {
     constructor(name, radius, mass, sidereelTime, spectatingDistance, position = { x: 0, y: 0, z: 0 }, velocity = { x: 0, y: 0, z: 0 }) {

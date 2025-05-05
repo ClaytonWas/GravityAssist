@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import * as THREE from 'https://unpkg.com/three@0.158.0/build/three.module.js';
 import { Star, Planet, Moon } from './HeavenlyBodies.js';
 
 const gameWindow = document.getElementById('gameWindow');
