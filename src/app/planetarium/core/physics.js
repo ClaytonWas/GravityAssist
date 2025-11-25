@@ -163,15 +163,15 @@ export function predictTrajectory(probe, allBodies, timeScale, steps = 10000, ma
     }
     
     // Check for collisions (optional - can be used to stop prediction early)
-    for (const body of simBodies) {
-      const dx = simProbe.position.x - body.position.x;
-      const dy = simProbe.position.y - body.position.y;
-      const dz = simProbe.position.z - body.position.z;
-      const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      
-      // If probe gets too close to a body, we could stop (optional)
-      // if (distance < body.radius * 2) break;
-    }
+    // for (const body of simBodies) {
+    //   const dx = simProbe.position.x - body.position.x;
+    //   const dy = simProbe.position.y - body.position.y;
+    //   const dz = simProbe.position.z - body.position.z;
+    //   const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    //   
+    //   // If probe gets too close to a body, we could stop (optional)
+    //   if (distance < body.radius * 2) break;
+    // }
   }
   
   return trajectory;

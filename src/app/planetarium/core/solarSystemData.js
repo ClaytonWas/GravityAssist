@@ -4,9 +4,9 @@
 // Scale factors for visualization
 // Distance scale: Use a larger scale to prevent clustering
 // 1 unit = 1 million km (simpler and prevents clustering)
-const DISTANCE_SCALE = 1; // 1 unit = 1 million km
+// const DISTANCE_SCALE = 1; // 1 unit = 1 million km (currently unused)
 const RADIUS_SCALE = 0.01; // Scale down radii for visibility (1 unit = 100 km)
-const MASS_SCALE = 1; // Keep masses in simulation units (relative to Earth)
+// const MASS_SCALE = 1; // Keep masses in simulation units (relative to Earth) (currently unused)
 
 // Real solar system data with accurate relative values
 // Distances in million km (1 unit = 1 million km)

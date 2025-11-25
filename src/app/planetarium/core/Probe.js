@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import { HeavenlyBody } from '../HeavenlyBodies';
 
 export class Probe extends HeavenlyBody {
