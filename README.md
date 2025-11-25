@@ -1,53 +1,36 @@
-# Solar System Simulation
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-A 3D solar system simulation using **Three.js** that models the gravitational interactions between celestial bodies, allowing users to navigate and explore the system in real time. This project simulates the Sun, planets, and the Moon, including realistic orbits, masses, and velocities.
+## Getting Started
 
----
+First, run the development server:
 
-## Controls
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
 
-| Key         | Action                                              |
-|-------------|-----------------------------------------------------|
-| `q`         | Move camera up.                                     |
-| `w`         | Move camera closer.                                 |
-| `e`         | Move camera down.                                   |
-| `a`         | Move camera left.                                   |
-| `s`         | Move camera further away.                           |
-| `d`         | Move camera right.                                  |
-| `ArrowUp`   | Rotate camera upward.                               |
-| `ArrowDown` | Rotate camera downward.                             |
-| `ArrowLeft` | Rotate camera left.                                 |
-| `ArrowRight`| Rotate camera right.                                |
-| `1-9`       | Teleport to celestial bodies (e.g., Mercury to Moon).|
-| `0`         | Teleport to the Sun.                                |
-| `-`         | Unlock camera.                                      |
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
----
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
-## Installation
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/ClaytonWas/GravityAssist.git
-   cd GravityAssist
-   ```
+## Learn More
 
-2. Install dependencies:
-   ```bash
-   npm ci
-   ```
+To learn more about Next.js, take a look at the following resources:
 
-3. Run the application:
-   ```bash
-   npx vite
-   ```
-   
----
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
-## Screenshots
-![Earth and Moon](./images/earth-and-moon.jpg)
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
----
+## Deploy on Vercel
 
-## Credits
-[Solar System Textures](https://www.solarsystemscope.com/)
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

@@ -1,0 +1,9 @@
+{
+    "rewrites": [
+      {
+        "source": "/ciceroportfolio",
+        "destination": "https://claytonwas.github.io/ciceroportfolio"
+      }
+    ]
+  }
+  
