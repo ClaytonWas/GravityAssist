@@ -117,6 +117,93 @@ function createTrajectoryLine(trajectory, scene, color = 0xFF6600) {
   return line;
 }
 
+function createSolarFlare(flareGroup, sunPosition, sunRadius) {
+  // Clear any existing flares
+  clearSolarFlares(flareGroup);
+  
+  // Create 3-6 random solar flares
+  const numFlares = 3 + Math.floor(Math.random() * 4);
+  
+  for (let i = 0; i < numFlares; i++) {
+    // Random direction from sun surface
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.random() * Math.PI;
+    const direction = new THREE.Vector3(
+      Math.sin(phi) * Math.cos(theta),
+      Math.sin(phi) * Math.sin(theta),
+      Math.cos(phi)
+    );
+    
+    // Start from sun surface
+    const startPosition = sunPosition.clone().add(direction.clone().multiplyScalar(sunRadius * 1.1));
+    
+    // Flare length varies
+    const flareLength = sunRadius * (0.3 + Math.random() * 0.5);
+    const endPosition = startPosition.clone().add(direction.clone().multiplyScalar(flareLength));
+    
+    // Create flare geometry (elongated cone/sphere)
+    const flareGeometry = new THREE.ConeGeometry(
+      sunRadius * 0.05,
+      flareLength,
+      8,
+      1,
+      true
+    );
+    
+    // Bright orange/yellow material
+    const flareMaterial = new THREE.MeshBasicMaterial({
+      color: new THREE.Color().setHSL(0.1, 1.0, 0.6 + Math.random() * 0.2),
+      transparent: true,
+      opacity: 0.8,
+      side: THREE.DoubleSide
+    });
+    
+    const flareMesh = new THREE.Mesh(flareGeometry, flareMaterial);
+    
+    // Position and orient flare
+    flareMesh.position.copy(startPosition);
+    flareMesh.lookAt(endPosition);
+    flareMesh.rotateX(Math.PI / 2);
+    
+    // Store animation data
+    flareMesh.userData.direction = direction;
+    flareMesh.userData.startPos = startPosition.clone();
+    flareMesh.userData.length = flareLength;
+    flareMesh.userData.speed = 0.5 + Math.random() * 0.5;
+    flareMesh.userData.opacity = 0.8;
+    
+    flareGroup.add(flareMesh);
+  }
+}
+
+function animateSolarFlares(flareGroup, time) {
+  flareGroup.children.forEach((flare) => {
+    // Expand and fade out over 4 seconds
+    const progress = Math.min(time / 4.0, 1.0);
+    const scale = 1.0 + progress * 2.5;
+    flare.scale.set(scale, scale, scale);
+    
+    // Fade out with easing
+    const fadeProgress = 1.0 - Math.pow(1.0 - progress, 2); // Ease out
+    flare.material.opacity = flare.userData.opacity * (1.0 - fadeProgress);
+    
+    // Move outward slightly
+    const offset = flare.userData.direction.clone().multiplyScalar(
+      flare.userData.length * progress * 0.4
+    );
+    flare.position.copy(flare.userData.startPos).add(offset);
+  });
+}
+
+function clearSolarFlares(flareGroup) {
+  while (flareGroup.children.length > 0) {
+    const flare = flareGroup.children[0];
+    flare.geometry.dispose();
+    flare.material.dispose();
+    flareGroup.remove(flare);
+  }
+}
+
 const PlanetariumScene = () => {
   const mountRef = useRef(null);
   const [timeScale, setTimeScale] = useState(1000); // Default speed
@@ -324,6 +411,22 @@ const PlanetariumScene = () => {
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+    
+    // Enable realistic shadows
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    
+    // Improve lighting quality with tone mapping
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0; // Standard exposure
+    
+    // Use legacy lights for more predictable behavior with moving objects
+    // Physically based lighting can have issues with dynamic scenes
+    renderer.useLegacyLights = true;
+    
+    // Ensure lights are properly enabled
+    renderer.shadowMap.enabled = true;
+    
     mountRef.current.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -445,55 +548,175 @@ const PlanetariumScene = () => {
 
     bodiesRef.current = initialBodies;
 
+    // Very minimal ambient light - just enough to prevent pure black
+    const ambientLight = new THREE.AmbientLight(0x404080, 0.1);
+    scene.add(ambientLight);
+
+    // Use DirectionalLight - simpler and more reliable than PointLight
+    // DirectionalLight simulates sunlight (parallel rays from far away)
+    const sunLight = new THREE.DirectionalLight(0xfff4e6, 3.0);
+    sunLight.castShadow = true;
+    
+    // Position the light far away (directional lights work from position)
+    // Point it toward the origin where planets orbit
+    sunLight.position.set(1000, 1000, 1000);
+    sunLight.target.position.set(0, 0, 0);
+    
+    // Shadow settings
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.camera.near = 0.1;
+    sunLight.shadow.camera.far = 100000;
+    sunLight.shadow.camera.left = -50000;
+    sunLight.shadow.camera.right = 50000;
+    sunLight.shadow.camera.top = 50000;
+    sunLight.shadow.camera.bottom = -50000;
+    
+    // Add light and target to scene
+    scene.add(sunLight);
+    scene.add(sunLight.target);
+    
+    // Debug helper
+    const lightHelper = new THREE.DirectionalLightHelper(sunLight, 50);
+    scene.add(lightHelper);
+    
+    console.log('DirectionalLight created:', {
+      intensity: sunLight.intensity,
+      position: sunLight.position,
+      target: sunLight.target.position,
+      color: sunLight.color.getHexString()
+    });
+
+    // Create solar flares group
+    const solarFlaresGroup = new THREE.Group();
+    scene.add(solarFlaresGroup);
+    let solarFlareTime = 0;
+    let solarFlareActive = false;
+    let lastSolarFlareCheck = 0;
+
     const bodyMeshes = initialBodies.map((body) => {
       const geometry = new THREE.SphereGeometry(body.radius, 64, 32);
       let material;
       
       if (body.name === 'Sun' && simulationMode === 'solarSystem') {
-        // Create glowing shader for the sun
+        // Use sun texture with animated plasma shader
+        const sunTexture = textureLoader.load('/planetarium/textures/Sun.jpg');
+        sunTexture.wrapS = THREE.RepeatWrapping;
+        sunTexture.wrapT = THREE.RepeatWrapping;
+        
+        // Plasma shader vertex
         const sunVertexShader = `
+          varying vec2 vUv;
           varying vec3 vNormal;
           varying vec3 vPosition;
+          
           void main() {
+            vUv = uv;
             vNormal = normalize(normalMatrix * normal);
             vPosition = position;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
           }
         `;
         
+        // Plasma shader fragment with animated texture
         const sunFragmentShader = `
+          uniform sampler2D sunTexture;
           uniform float time;
           uniform float radius;
+          varying vec2 vUv;
           varying vec3 vNormal;
           varying vec3 vPosition;
           
+          // Simple noise function for plasma distortion
+          float noise(vec2 p) {
+            return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+          }
+          
+          // Smooth noise
+          float smoothNoise(vec2 p) {
+            vec2 i = floor(p);
+            vec2 f = fract(p);
+            f = f * f * (3.0 - 2.0 * f);
+            
+            float a = noise(i);
+            float b = noise(i + vec2(1.0, 0.0));
+            float c = noise(i + vec2(0.0, 1.0));
+            float d = noise(i + vec2(1.0, 1.0));
+            
+            return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+          }
+          
+          // Fractal noise for plasma effect
+          float fractalNoise(vec2 p) {
+            float value = 0.0;
+            float amplitude = 0.5;
+            float frequency = 1.0;
+            
+            for (int i = 0; i < 4; i++) {
+              value += amplitude * smoothNoise(p * frequency);
+              frequency *= 2.0;
+              amplitude *= 0.5;
+            }
+            
+            return value;
+          }
+          
           void main() {
-            vec3 color1 = vec3(1.0, 0.8, 0.4); // Warm yellow
-            vec3 color2 = vec3(1.0, 0.6, 0.2); // Orange
-            vec3 color3 = vec3(1.0, 0.9, 0.7); // Light yellow
+            // Create flowing plasma distortion
+            vec2 uv = vUv;
             
-            // Create pulsing effect
-            float pulse = sin(time * 2.0) * 0.1 + 1.0;
+            // Animated distortion based on position and time
+            vec2 distortion = vec2(
+              fractalNoise(uv * 3.0 + vec2(time * 0.3, time * 0.2)),
+              fractalNoise(uv * 3.0 + vec2(time * 0.2, time * 0.3))
+            );
             
-            // Radial gradient from center
-            float dist = length(vPosition);
-            float normalizedDist = dist / radius;
-            float gradient = 1.0 - smoothstep(0.0, 1.0, normalizedDist);
+            // Rotating swirl effect
+            vec2 center = vec2(0.5, 0.5);
+            vec2 toCenter = uv - center;
+            float angle = atan(toCenter.y, toCenter.x);
+            float dist = length(toCenter);
             
-            // Mix colors based on position
-            vec3 color = mix(color1, color2, gradient * 0.5);
-            color = mix(color, color3, sin(normalizedDist * 5.0 + time) * 0.3 + 0.3);
+            // Add rotating distortion
+            float swirl = sin(angle * 3.0 + time * 0.5 + dist * 5.0) * 0.02;
+            distortion += vec2(cos(angle + time * 0.3), sin(angle + time * 0.3)) * swirl;
             
-            // Add glow effect at edges
-            float glow = 1.0 + smoothstep(0.7, 1.0, normalizedDist) * 0.8;
+            // Apply distortion to UV coordinates
+            vec2 distortedUV = uv + distortion * 0.1;
             
-            // Final color with emission and glow
-            gl_FragColor = vec4(color * glow * pulse, 1.0);
+            // Sample texture with animated UV
+            vec4 texColor = texture2D(sunTexture, distortedUV);
+            
+            // Add radial plasma waves
+            float radialDist = length(toCenter);
+            float plasmaWave = sin(radialDist * 8.0 - time * 2.0) * 0.1 + 0.9;
+            
+            // Enhance plasma effect with color variation
+            vec3 plasmaColor = vec3(1.0, 0.8, 0.4);
+            vec3 hotColor = vec3(1.0, 0.5, 0.1);
+            
+            // Mix colors based on noise and position
+            float colorMix = fractalNoise(uv * 2.0 + vec2(time * 0.4, time * 0.3));
+            vec3 finalColor = mix(plasmaColor, hotColor, colorMix * 0.3);
+            
+            // Combine texture with plasma effect
+            vec3 color = texColor.rgb * finalColor * plasmaWave;
+            
+            // Add emissive glow that varies
+            float emissiveIntensity = 1.0 + sin(time * 0.5) * 0.2 + sin(time * 1.3) * 0.15;
+            color *= emissiveIntensity;
+            
+            // Add edge glow
+            float edgeGlow = 1.0 + smoothstep(0.7, 1.0, radialDist) * 0.5;
+            color *= edgeGlow;
+            
+            gl_FragColor = vec4(color, 1.0);
           }
         `;
         
         material = new THREE.ShaderMaterial({
           uniforms: {
+            sunTexture: { value: sunTexture },
             time: { value: 0 },
             radius: { value: body.radius }
           },
@@ -503,14 +726,31 @@ const PlanetariumScene = () => {
         });
         
       } else {
-        // Regular planets with textures
+        // Regular planets with textures - use MeshStandardMaterial for realistic lighting
         const texture = textureLoader.load(`/planetarium/textures/${body.name}.jpg`);
-        material = new THREE.MeshBasicMaterial({ map: texture });
+        material = new THREE.MeshStandardMaterial({ 
+          map: texture,
+          roughness: 0.8,
+          metalness: 0.0,
+          // Ensure planets respond well to lighting - use white so texture shows properly
+          color: 0xffffff,
+          // Make sure material responds to lights (not flat shaded)
+          flatShading: false,
+          // Ensure material is not emissive (which would ignore lighting)
+          emissive: 0x000000,
+          emissiveIntensity: 0.0
+        });
       }
       
       const mesh = new THREE.Mesh(geometry, material);
       mesh.position.copy(body.position);
       mesh.userData.bodyName = body.name;
+      
+      // Enable shadows for planets (not sun, as it's the light source)
+      if (body.name !== 'Sun') {
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+      }
       
       // Store shader material reference for sun animation
       if (body.name === 'Sun' && material.uniforms) {
@@ -520,6 +760,13 @@ const PlanetariumScene = () => {
       scene.add(mesh);
       return mesh;
     });
+
+    // Find sun mesh and position light
+    const sunMeshIndex = initialBodies.findIndex(b => b.name === 'Sun');
+    if (sunMeshIndex !== -1) {
+      const sunMesh = bodyMeshes[sunMeshIndex];
+      sunLight.position.copy(sunMesh.position);
+    }
     bodyMeshesRef.current = bodyMeshes;
 
     // Initialize planet labels
@@ -682,6 +929,28 @@ const PlanetariumScene = () => {
         if (mesh) {
           // CRITICAL: Update mesh position from body position - this makes bodies visible
           mesh.position.set(body.position.x, body.position.y, body.position.z);
+          
+          // Update sun light direction - CRITICAL: must update every frame
+          if (body.name === 'Sun') {
+            const sunPos = mesh.position;
+            // Position directional light far from sun, pointing toward sun
+            // This creates light coming FROM the sun toward planets
+            const lightDistance = 10000;
+            sunLight.position.set(
+              sunPos.x - lightDistance,
+              sunPos.y - lightDistance,
+              sunPos.z - lightDistance
+            );
+            // Point light target at sun position (light rays come from opposite direction)
+            sunLight.target.position.copy(sunPos);
+            sunLight.target.updateMatrixWorld();
+            sunLight.updateMatrixWorld();
+            // Update helper
+            if (lightHelper) {
+              lightHelper.update();
+            }
+          }
+          
           if (!isPausedRef.current) {
             // Rotate planet: angularVelocity scales with simulation speed
             // Multiply by frameDelta (real time) and timeScale (simulation speed)
@@ -689,9 +958,37 @@ const PlanetariumScene = () => {
             const currentTimeScale = timeScaleRef.current;
             mesh.rotation.y += body.angularVelocity * frameDelta * (currentTimeScale / 1000);
             
-            // Update sun shader time for pulsing glow effect
+            // Update sun shader time for plasma animation
             if (body.name === 'Sun' && mesh.userData.shaderMaterial) {
-              mesh.userData.shaderMaterial.uniforms.time.value += frameDelta * 0.5;
+              const time = clock.getElapsedTime();
+              mesh.userData.shaderMaterial.uniforms.time.value = time;
+              
+              // Update solar flares
+              if (solarFlareActive) {
+                solarFlareTime += frameDelta;
+                
+                // Animate active flares
+                animateSolarFlares(solarFlaresGroup, solarFlareTime);
+                
+                // Remove flares after 4 seconds
+                if (solarFlareTime > 4) {
+                  solarFlareActive = false;
+                  solarFlareTime = 0;
+                  clearSolarFlares(solarFlaresGroup);
+                }
+              } else {
+                // Check for new flares every 5 seconds (to avoid checking every frame)
+                lastSolarFlareCheck += frameDelta;
+                if (lastSolarFlareCheck > 5) {
+                  lastSolarFlareCheck = 0;
+                  // Randomly trigger solar flares (5% chance every 5 seconds = roughly every 100 seconds)
+                  if (Math.random() < 0.05) {
+                    solarFlareActive = true;
+                    solarFlareTime = 0;
+                    createSolarFlare(solarFlaresGroup, mesh.position, body.radius);
+                  }
+                }
+              }
             }
           }
         }
@@ -995,6 +1292,12 @@ const PlanetariumScene = () => {
       
       if (physicsWorkerRef.current) {
         physicsWorkerRef.current.terminate();
+      }
+
+      // Clean up solar flares
+      clearSolarFlares(solarFlaresGroup);
+      if (sceneRef.current) {
+        sceneRef.current.remove(solarFlaresGroup);
       }
 
       // Clean up probe trajectory lines
