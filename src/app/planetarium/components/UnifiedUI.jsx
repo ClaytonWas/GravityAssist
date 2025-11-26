@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import MissionObjectives from './MissionObjectives';
 import ProbeLauncher from './ProbeLauncher';
 
@@ -11,8 +11,83 @@ export default function UnifiedUI({
   cameraPresets,
   onCameraPreset
 }) {
+  // Persist activeTab in localStorage so it doesn't reset
+  // Start with default to avoid hydration mismatch
   const [activeTab, setActiveTab] = useState('missions');
   const [isExpanded, setIsExpanded] = useState(true);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Load from localStorage after mount to avoid hydration mismatch
+  useEffect(() => {
+    setIsHydrated(true);
+    const savedTab = localStorage.getItem('planetariumActiveTab');
+    if (savedTab) {
+      setActiveTab(savedTab);
+    }
+  }, []);
+
+  // Save activeTab to localStorage whenever it changes
+  useEffect(() => {
+    if (isHydrated) {
+      localStorage.setItem('planetariumActiveTab', activeTab);
+    }
+  }, [activeTab, isHydrated]);
+
+  // Lift probe launcher state to persist across tab switches
+  // Start with defaults to avoid hydration mismatch
+  const [probeLauncherState, setProbeLauncherState] = useState({
+    speed: 0.01,
+    launchAngle: { azimuth: 0, elevation: 0 },
+    isLaunching: false
+  });
+
+  // Load probe launcher state from localStorage after mount
+  useEffect(() => {
+    if (isHydrated) {
+      const saved = localStorage.getItem('probeLauncherState');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setProbeLauncherState(parsed);
+        } catch (e) {
+          // Invalid JSON, keep defaults
+        }
+      }
+    }
+  }, [isHydrated]);
+
+  // Save probe launcher state to localStorage
+  useEffect(() => {
+    if (isHydrated) {
+      localStorage.setItem('probeLauncherState', JSON.stringify(probeLauncherState));
+    }
+  }, [probeLauncherState, isHydrated]);
+
+  // Lift missions state to persist across tab switches
+  // Start with null to avoid hydration mismatch
+  const [missionsState, setMissionsState] = useState(null);
+
+  // Load missions state from localStorage after mount
+  useEffect(() => {
+    if (isHydrated) {
+      const saved = localStorage.getItem('missionsState');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setMissionsState(parsed);
+        } catch (e) {
+          // Invalid JSON, keep null
+        }
+      }
+    }
+  }, [isHydrated]);
+
+  // Save missions state to localStorage
+  useEffect(() => {
+    if (isHydrated && missionsState) {
+      localStorage.setItem('missionsState', JSON.stringify(missionsState));
+    }
+  }, [missionsState, isHydrated]);
 
   const tabs = [
     { id: 'missions', label: 'Missions', icon: '🎯' },
@@ -69,17 +144,26 @@ export default function UnifiedUI({
 
           {/* Tab Content */}
           <div className="max-h-[calc(100vh-10rem)] overflow-y-auto custom-scrollbar">
-            {activeTab === 'missions' && (
+            {/* Keep components mounted but hidden to preserve state */}
+            <div className={activeTab === 'missions' ? 'block' : 'hidden'}>
               <div className="p-3">
-                <MissionObjectives {...missionsProps} />
+                <MissionObjectives 
+                  {...missionsProps} 
+                  missionsState={missionsState}
+                  setMissionsState={setMissionsState}
+                />
               </div>
-            )}
+            </div>
 
-            {activeTab === 'probe' && (
+            <div className={activeTab === 'probe' ? 'block' : 'hidden'}>
               <div className="p-3">
-                <ProbeLauncher {...probeLauncherProps} />
+                <ProbeLauncher 
+                  {...probeLauncherProps}
+                  probeLauncherState={probeLauncherState}
+                  setProbeLauncherState={setProbeLauncherState}
+                />
               </div>
-            )}
+            </div>
 
             {activeTab === 'camera' && (
               <div className="p-3 space-y-3">

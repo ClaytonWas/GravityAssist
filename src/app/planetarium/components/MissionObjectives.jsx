@@ -33,8 +33,21 @@ const MISSIONS = [
   }
 ];
 
-export default function MissionObjectives({ probes, bodies }) {
-  const [missions, setMissions] = useState(MISSIONS);
+export default function MissionObjectives({ probes, bodies, missionsState, setMissionsState }) {
+  const [missions, setMissions] = useState(() => {
+    // Use lifted state if provided, otherwise use default
+    if (missionsState) {
+      return missionsState;
+    }
+    return MISSIONS;
+  });
+
+  // Sync local state with lifted state
+  useEffect(() => {
+    if (setMissionsState) {
+      setMissionsState(missions);
+    }
+  }, [missions, setMissionsState]);
 
   // Check mission progress
   const checkMissions = () => {

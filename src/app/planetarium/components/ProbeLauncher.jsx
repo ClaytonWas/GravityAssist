@@ -8,13 +8,27 @@ export default function ProbeLauncher({
   allBodies, 
   timeScale, 
   onLaunchProbe,
-  onUpdateTrajectory 
+  onUpdateTrajectory,
+  probeLauncherState,
+  setProbeLauncherState
 }) {
-  const [isLaunching, setIsLaunching] = useState(false);
+  // Use lifted state if provided, otherwise use local state
+  const [isLaunching, setIsLaunching] = useState(probeLauncherState?.isLaunching ?? false);
   const [launchVelocity, setLaunchVelocity] = useState({ x: 0, y: 0, z: 0 });
-  const [launchAngle, setLaunchAngle] = useState({ azimuth: 0, elevation: 0 });
-  const [speed, setSpeed] = useState(0.01); // Initial launch speed (in million km/s units)
+  const [launchAngle, setLaunchAngle] = useState(probeLauncherState?.launchAngle ?? { azimuth: 0, elevation: 0 });
+  const [speed, setSpeed] = useState(probeLauncherState?.speed ?? 0.01);
   const trajectoryRef = useRef(null);
+
+  // Sync local state with lifted state
+  useEffect(() => {
+    if (setProbeLauncherState) {
+      setProbeLauncherState({
+        speed,
+        launchAngle,
+        isLaunching
+      });
+    }
+  }, [speed, launchAngle, isLaunching, setProbeLauncherState]);
 
   // Calculate launch velocity from Earth's surface
   const calculateLaunchVelocity = () => {
@@ -83,8 +97,7 @@ export default function ProbeLauncher({
 
     onLaunchProbe(probe);
     setIsLaunching(false);
-    setSpeed(0.01);
-    setLaunchAngle({ azimuth: 0, elevation: 0 });
+    // Don't reset sliders - keep user's settings
   };
 
   if (!earth) return null;

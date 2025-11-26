@@ -1215,7 +1215,11 @@ const PlanetariumScene = () => {
       // Don't handle keys if user is typing in an input
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       
-      if (e.key === '0') {
+      if (e.key === ' ' || e.key === 'Spacebar') {
+        // Spacebar to pause/unpause
+        e.preventDefault();
+        setIsPaused(prev => !prev);
+      } else if (e.key === '0') {
         // Unlock camera
         if (setCameraTargetNameRef.current) {
           setCameraTargetNameRef.current(null);
@@ -2032,16 +2036,6 @@ const PlanetariumScene = () => {
                         {selectedBody.isActive ? 'Active' : 'Inactive'}
                       </span>
                     </div>
-                  </div>
-
-                  <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
-                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Radius</div>
-                    <div className="text-sm font-bold text-blue-400 font-mono">{selectedBody.radius.toFixed(2)} <span className="text-xs text-slate-400 font-normal">units</span></div>
-                  </div>
-
-                  <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
-                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Mass</div>
-                    <div className="text-sm font-bold text-purple-400 font-mono">{selectedBody.mass.toFixed(2)} <span className="text-xs text-slate-400 font-normal">Earth masses</span></div>
                   </div>
 
                   {selectedBodyLiveData && selectedBodyLiveData.probeStats && (
