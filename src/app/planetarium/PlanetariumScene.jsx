@@ -236,6 +236,8 @@ const PlanetariumScene = () => {
   const trajectoryLineRef = useRef(null);
   const probeTrajectoryLinesRef = useRef(new Map()); // Map of probe ID to trajectory line
   const probeTrajectoryPointsRef = useRef(new Map()); // Map of probe ID to trajectory points array
+  const probePausedTimeRef = useRef(new Map()); // Map of probe ID to accumulated paused time in ms
+  const probePauseStartRef = useRef(new Map()); // Map of probe ID to pause start timestamp
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
@@ -1330,9 +1332,30 @@ const PlanetariumScene = () => {
   }, [timeScale]);
 
 
-  // Update pause state
+  // Update pause state and track paused time for probes
   useEffect(() => {
     isPausedRef.current = isPaused;
+    
+    // Track paused time for all probes
+    if (isPaused) {
+      // Simulation just paused - record pause start time for all active probes
+      probesRef.current.forEach(probe => {
+        if (probe.isActive && !probePauseStartRef.current.has(probe.id)) {
+          probePauseStartRef.current.set(probe.id, Date.now());
+        }
+      });
+    } else {
+      // Simulation just resumed - accumulate paused time and clear pause start
+      probesRef.current.forEach(probe => {
+        if (probePauseStartRef.current.has(probe.id)) {
+          const pauseStart = probePauseStartRef.current.get(probe.id);
+          const pausedDuration = Date.now() - pauseStart;
+          const currentPausedTime = probePausedTimeRef.current.get(probe.id) || 0;
+          probePausedTimeRef.current.set(probe.id, currentPausedTime + pausedDuration);
+          probePauseStartRef.current.delete(probe.id);
+        }
+      });
+    }
     if (physicsWorkerRef.current) {
       physicsWorkerRef.current.postMessage({
         type: 'setPaused',
@@ -1399,7 +1422,12 @@ const PlanetariumScene = () => {
           // Calculate probe-specific statistics
           let probeStats = null;
           if (currentBody instanceof Probe) {
-            const timeSinceLaunch = (Date.now() - currentBody.launchTime) / 1000; // seconds
+            // Calculate mission time accounting for paused periods
+            const totalPausedTime = probePausedTimeRef.current.get(currentBody.id) || 0;
+            const currentPauseTime = probePauseStartRef.current.has(currentBody.id) 
+              ? (Date.now() - probePauseStartRef.current.get(currentBody.id))
+              : 0;
+            const timeSinceLaunch = (Date.now() - currentBody.launchTime - totalPausedTime - currentPauseTime) / 1000; // seconds
             const distanceFromEarth = currentBody.getDistanceTo ? 
               (() => {
                 const earth = bodiesRef.current.find(b => b.name === 'Earth');
@@ -1894,7 +1922,7 @@ const PlanetariumScene = () => {
                       </div>
                     </div>
                   )}
-                  {selectedBodyLiveData && selectedBodyLiveData.sidereelTime !== null && (
+                  {selectedBodyLiveData && selectedBodyLiveData.sidereelTime !== null && selectedBodyLiveData.sidereelTime !== 0 && !(selectedBody instanceof Probe) && (
                     <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
                       <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 font-semibold">Sidereal Rotation</div>
                       <div className="space-y-1 text-[10px]">
@@ -1919,23 +1947,25 @@ const PlanetariumScene = () => {
             </>
           ) : (
             <>
-              {/* Basic Info Cards */}
-              <div className="grid grid-cols-1 gap-2">
-                <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Radius</div>
-                  <div className="text-sm font-bold text-blue-400 font-mono">{selectedBody.radius.toFixed(2)} <span className="text-xs text-slate-400 font-normal">units</span></div>
-                </div>
-                <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Mass</div>
-                  <div className="text-sm font-bold text-purple-400 font-mono">{selectedBody.mass.toFixed(2)} <span className="text-xs text-slate-400 font-normal">Earth masses</span></div>
-                </div>
-                {selectedBody.sidereelTime && (
+              {/* Basic Info Cards - Only show for planets, not probes */}
+              {!(selectedBody instanceof Probe) && (
+                <div className="grid grid-cols-1 gap-2">
                   <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30">
-                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Rotation Period</div>
-                    <div className="text-sm font-bold text-pink-400 font-mono">{(Math.abs(selectedBody.sidereelTime) / 86400).toFixed(1)} <span className="text-xs text-slate-400 font-normal">days</span></div>
+                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Radius</div>
+                    <div className="text-sm font-bold text-blue-400 font-mono">{selectedBody.radius.toFixed(2)} <span className="text-xs text-slate-400 font-normal">units</span></div>
                   </div>
-                )}
-              </div>
+                  <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30">
+                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Mass</div>
+                    <div className="text-sm font-bold text-purple-400 font-mono">{selectedBody.mass.toFixed(2)} <span className="text-xs text-slate-400 font-normal">Earth masses</span></div>
+                  </div>
+                  {selectedBody.sidereelTime && (
+                    <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Rotation Period</div>
+                      <div className="text-sm font-bold text-pink-400 font-mono">{(Math.abs(selectedBody.sidereelTime) / 86400).toFixed(1)} <span className="text-xs text-slate-400 font-normal">days</span></div>
+                    </div>
+                  )}
+                </div>
+              )}
               
               {/* Live Data Section */}
               <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 rounded-lg p-3 border border-blue-500/20">
@@ -1969,7 +1999,7 @@ const PlanetariumScene = () => {
                       </div>
                     </div>
                   )}
-                  {selectedBodyLiveData && selectedBodyLiveData.sidereelTime !== null && (
+                  {selectedBodyLiveData && selectedBodyLiveData.sidereelTime !== null && selectedBodyLiveData.sidereelTime !== 0 && !(selectedBody instanceof Probe) && (
                     <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
                       <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 font-semibold">Sidereal Rotation</div>
                       <div className="space-y-1 text-[10px]">
@@ -2002,6 +2032,16 @@ const PlanetariumScene = () => {
                         {selectedBody.isActive ? 'Active' : 'Inactive'}
                       </span>
                     </div>
+                  </div>
+
+                  <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
+                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Radius</div>
+                    <div className="text-sm font-bold text-blue-400 font-mono">{selectedBody.radius.toFixed(2)} <span className="text-xs text-slate-400 font-normal">units</span></div>
+                  </div>
+
+                  <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
+                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Mass</div>
+                    <div className="text-sm font-bold text-purple-400 font-mono">{selectedBody.mass.toFixed(2)} <span className="text-xs text-slate-400 font-normal">Earth masses</span></div>
                   </div>
 
                   {selectedBodyLiveData && selectedBodyLiveData.probeStats && (
