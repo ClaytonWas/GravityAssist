@@ -125,7 +125,7 @@ function rk4Step(body, allBodies, dt) {
 }
 
 let bodies = [];
-let timeScale = 10000; // Smaller default for better stability
+let timeScale = 1000; // Default speed
 let isPaused = false;
 let frameId = null;
 

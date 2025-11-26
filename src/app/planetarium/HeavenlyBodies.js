@@ -9,7 +9,25 @@ export class HeavenlyBody {
         this.sidereelTime = sidereelTime;
         this.position = new THREE.Vector3(position.x, position.y, position.z);
         this.velocity = new THREE.Vector3(velocity.x, velocity.y, velocity.z);
-        this.angularVelocity = (2*Math.PI)/sidereelTime;
+        
+        // Calculate angular velocity with speed factor to make rotations visible
+        // ROTATION_SPEED_FACTOR makes rotations 10000x faster for visual effect
+        const ROTATION_SPEED_FACTOR = 10000;
+        if (sidereelTime && Math.abs(sidereelTime) > 0.001) {
+            this.angularVelocity = ((2 * Math.PI) / sidereelTime) * ROTATION_SPEED_FACTOR;
+        } else {
+            this.angularVelocity = 0;
+            console.warn(`Planet ${name} has invalid sidereelTime: ${sidereelTime}, rotation disabled`);
+        }
+    }
+
+    // Get velocity magnitude (speed)
+    getSpeed() {
+        return Math.sqrt(
+            this.velocity.x * this.velocity.x +
+            this.velocity.y * this.velocity.y +
+            this.velocity.z * this.velocity.z
+        );
     }
 
     updateVelocity(acceleration, deltaTime) {

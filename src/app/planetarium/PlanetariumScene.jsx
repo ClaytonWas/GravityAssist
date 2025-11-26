@@ -102,22 +102,24 @@ function createTrajectoryLine(trajectory, scene, color = 0xFF6600) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
 
-  const material = new THREE.LineBasicMaterial({
+  const material = new THREE.LineDashedMaterial({
     color: color,
     transparent: true,
     opacity: 0.8,
     linewidth: 2,
-    dashed: true
+    dashSize: 5,
+    gapSize: 3
   });
 
   const line = new THREE.Line(geometry, material);
+  line.computeLineDistances(); // Required for dashed lines - must be called on the Line object
   scene.add(line);
   return line;
 }
 
 const PlanetariumScene = () => {
   const mountRef = useRef(null);
-  const [timeScale, setTimeScale] = useState(10000); // Smaller default for better stability
+  const [timeScale, setTimeScale] = useState(1000); // Default speed
   const MIN_TIME_SCALE = 100;
   const MAX_TIME_SCALE = 15000;
   const [isPaused, setIsPaused] = useState(false);
@@ -138,6 +140,8 @@ const PlanetariumScene = () => {
   const bodyMeshesRef = useRef([]);
   const probeMeshesRef = useRef([]);
   const trajectoryLineRef = useRef(null);
+  const probeTrajectoryLinesRef = useRef(new Map()); // Map of probe ID to trajectory line
+  const probeTrajectoryPointsRef = useRef(new Map()); // Map of probe ID to trajectory points array
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
@@ -147,6 +151,8 @@ const PlanetariumScene = () => {
   const setCameraTargetNameRef = useRef(null);
   const labelsRef = useRef([]);
   const ORBIT_PATH_RECALC_INTERVAL = 30; // Much more frequent updates
+  const TRAJECTORY_UPDATE_INTERVAL = 5; // Update trajectory lines every N frames
+  const trajectoryUpdateCounterRef = useRef(0);
 
   // Initialize physics worker
   useEffect(() => {
@@ -248,6 +254,23 @@ const PlanetariumScene = () => {
     console.log(`Probe ${probe.id} created at position:`, probe.position);
     console.log(`Probe ${probe.id} velocity:`, probe.velocity);
 
+    // Initialize trajectory tracking for this probe
+    probeTrajectoryPointsRef.current.set(probe.id, [{
+      x: probe.position.x,
+      y: probe.position.y,
+      z: probe.position.z
+    }]);
+
+    // Create trajectory line for this probe
+    const trajectoryLine = createTrajectoryLine(
+      probeTrajectoryPointsRef.current.get(probe.id),
+      sceneRef.current,
+      0x00FF00 // Green for launched probes
+    );
+    if (trajectoryLine) {
+      probeTrajectoryLinesRef.current.set(probe.id, trajectoryLine);
+    }
+
     // Add to physics worker - CRITICAL: this makes the probe part of the simulation
     // The probe will now be included in ALL force calculations with ALL other bodies
     if (physicsWorkerRef.current) {
@@ -294,6 +317,8 @@ const PlanetariumScene = () => {
     cameraRef.current = camera;
     let cameraTarget = null;
     let followTargetOnce = false;
+    let userZooming = false;
+    let zoomTimeout = null;
     const textureLoader = new THREE.TextureLoader();
     const clock = new THREE.Clock();
 
@@ -304,11 +329,29 @@ const PlanetariumScene = () => {
     const controls = new OrbitControls(camera, renderer.domElement);
     controlsRef.current = controls;
     controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
+    controls.dampingFactor = 0.08; // Increased for smoother damping
     controls.screenSpacePanning = false;
     controls.minDistance = 10;
     controls.maxDistance = 5000;
     controls.maxPolarAngle = Math.PI / 2;
+    controls.rotateSpeed = 0.8; // Slightly slower rotation for smoother feel
+    controls.zoomSpeed = 1.0;
+    controls.panSpeed = 0.5;
+    
+    // Track user zoom to stop automatic distance adjustment
+    const onCameraZoom = () => {
+      userZooming = true;
+      // Stop automatic distance adjustment when user zooms
+      followTargetOnce = false;
+      
+      // Clear zoom flag after 1 second of no zoom
+      if (zoomTimeout) clearTimeout(zoomTimeout);
+      zoomTimeout = setTimeout(() => {
+        userZooming = false;
+      }, 1000);
+    };
+    
+    renderer.domElement.addEventListener('wheel', onCameraZoom);
 
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
@@ -325,16 +368,18 @@ const PlanetariumScene = () => {
       if (intersects.length > 0) {
         const clickedMesh = intersects[0].object;
         const bodyIndex = bodyMeshesRef.current.indexOf(clickedMesh);
-        const probeIndex = probeMeshesRef.current.indexOf(clickedMesh);
 
         if (bodyIndex !== -1) {
           const clickedBody = bodiesRef.current[bodyIndex];
           setSelectedBody(clickedBody);
           setIsInfoVisible(true);
-        } else if (probeIndex !== -1) {
-          const clickedProbe = probesRef.current[probeIndex];
-          setSelectedBody(clickedProbe);
-          setIsInfoVisible(true);
+        } else if (clickedMesh.userData && clickedMesh.userData.probeId) {
+          // It's a probe mesh - find probe by ID (works for both main mesh and glow mesh)
+          const clickedProbe = probesRef.current.find(p => p.id === clickedMesh.userData.probeId);
+          if (clickedProbe) {
+            setSelectedBody(clickedProbe);
+            setIsInfoVisible(true);
+          }
         }
       }
     }
@@ -367,12 +412,25 @@ const PlanetariumScene = () => {
       const data = SOLAR_SYSTEM_DATA[planetName];
       const orbital = getInitialOrbitalData(planetName);
       
+      // Calculate appropriate spectating distance based on planet size
+      // Ensure camera stays well outside the planet (at least 3x radius)
+      const planetRadius = getVisualRadius(planetName);
+      let spectatingDistance;
+      if (planetName === 'Jupiter' || planetName === 'Saturn') {
+        spectatingDistance = 100;
+      } else if (planetName === 'Uranus' || planetName === 'Neptune') {
+        // Uranus and Neptune need larger distances to prevent camera from going inside
+        spectatingDistance = Math.max(50, planetRadius * 3);
+      } else {
+        spectatingDistance = Math.max(5, planetRadius * 3);
+      }
+      
       return new Planet(
         planetName,
-        getVisualRadius(planetName),
+        planetRadius,
         data.mass,
         data.sidereelTime,
-        planetName === 'Jupiter' || planetName === 'Saturn' ? 100 : 5,
+        spectatingDistance,
         orbital.position,
         orbital.velocity
       );
@@ -625,7 +683,11 @@ const PlanetariumScene = () => {
           // CRITICAL: Update mesh position from body position - this makes bodies visible
           mesh.position.set(body.position.x, body.position.y, body.position.z);
           if (!isPausedRef.current) {
-            mesh.rotation.y += body.angularVelocity * timeScaleRef.current * frameDelta;
+            // Rotate planet: angularVelocity scales with simulation speed
+            // Multiply by frameDelta (real time) and timeScale (simulation speed)
+            // This makes planets rotate faster when simulation runs faster
+            const currentTimeScale = timeScaleRef.current;
+            mesh.rotation.y += body.angularVelocity * frameDelta * (currentTimeScale / 1000);
             
             // Update sun shader time for pulsing glow effect
             if (body.name === 'Sun' && mesh.userData.shaderMaterial) {
@@ -637,6 +699,7 @@ const PlanetariumScene = () => {
 
       // Update probe meshes - ensure they stay in sync with physics simulation
       // Also check for nearby planets to show gravity effects
+      // Also update trajectory points and lines
       probesRef.current.forEach((probe) => {
         if (!probe || !probe.position) return;
         const probeMeshes = probeMeshesRef.current.filter(m => m && m.userData.probeId === probe.id);
@@ -665,7 +728,44 @@ const PlanetariumScene = () => {
             }
           }
         });
+
+        // Update trajectory points periodically
+        trajectoryUpdateCounterRef.current++;
+        if (trajectoryUpdateCounterRef.current >= TRAJECTORY_UPDATE_INTERVAL) {
+          const trajectoryPoints = probeTrajectoryPointsRef.current.get(probe.id);
+          if (trajectoryPoints) {
+            // Add current position to trajectory
+            trajectoryPoints.push({
+              x: probe.position.x,
+              y: probe.position.y,
+              z: probe.position.z
+            });
+
+            // Limit trajectory length to prevent memory issues (keep last 5000 points)
+            if (trajectoryPoints.length > 5000) {
+              trajectoryPoints.shift();
+            }
+
+            // Update trajectory line
+            const trajectoryLine = probeTrajectoryLinesRef.current.get(probe.id);
+            if (trajectoryLine && trajectoryPoints.length >= 2) {
+              const points = [];
+              trajectoryPoints.forEach(pos => {
+                points.push(pos.x, pos.y, pos.z);
+              });
+
+              trajectoryLine.geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+              trajectoryLine.geometry.attributes.position.needsUpdate = true;
+              trajectoryLine.computeLineDistances(); // Required for dashed lines - must be called on the Line object
+            }
+          }
+        }
       });
+
+      // Reset trajectory update counter
+      if (trajectoryUpdateCounterRef.current >= TRAJECTORY_UPDATE_INTERVAL) {
+        trajectoryUpdateCounterRef.current = 0;
+      }
       
       // Update orbit paths more frequently (only if orbits are visible and simulation is running)
       if (showOrbitsRef.current && !isPausedRef.current) {
@@ -686,6 +786,7 @@ const PlanetariumScene = () => {
 
       // Handle camera following from preset or info panel
       if (cameraTargetNameRef.current) {
+        // First try to find by name (for planets)
         const bodyIndex = bodiesRef.current.findIndex(b => b.name === cameraTargetNameRef.current);
         if (bodyIndex !== -1) {
           const body = bodiesRef.current[bodyIndex];
@@ -696,9 +797,21 @@ const PlanetariumScene = () => {
             followTargetOnce = true;
           }
         } else {
-          // Planet not found, clear target
-          cameraTarget = null;
-          followTargetOnce = false;
+          // Try to find by ID (for probes)
+          const probeIndex = probesRef.current.findIndex(p => p.id === cameraTargetNameRef.current);
+          if (probeIndex !== -1) {
+            const probe = probesRef.current[probeIndex];
+            // Find the main probe mesh (not the glow mesh)
+            const probeMesh = probeMeshesRef.current.find(m => m && m.userData.probeId === probe.id && !m.userData.isGlow);
+            if (probeMesh && cameraTarget !== probeMesh) {
+              cameraTarget = probeMesh;
+              followTargetOnce = true;
+            }
+          } else {
+            // Target not found, clear target
+            cameraTarget = null;
+            followTargetOnce = false;
+          }
         }
       } else {
         // No target name set, clear camera target
@@ -726,58 +839,103 @@ const PlanetariumScene = () => {
         });
       }
       
-      // Camera following logic - smoothly follow planet position without forcing zoom/rotation
+      // Camera following logic - continuously follow planet/probe position dynamically
+      // Camera position moves with the target, maintaining relative position
       if (cameraTarget) {
         const meshIndex = bodyMeshesRef.current.indexOf(cameraTarget);
+        let targetBody = null;
+        
         if (meshIndex !== -1) {
-          const planet = bodiesRef.current[meshIndex];
+          // It's a planet/star
+          targetBody = bodiesRef.current[meshIndex];
+        } else {
+          // It might be a probe - check probe meshes
+          const probeMesh = probeMeshesRef.current.find(m => m === cameraTarget && !m.userData.isGlow);
+          if (probeMesh && probeMesh.userData.probeId) {
+            targetBody = probesRef.current.find(p => p.id === probeMesh.userData.probeId);
+          }
+        }
+        
+        if (targetBody) {
+          const planet = targetBody;
           
           // Ensure controls are always enabled for user interaction
           controls.enabled = true;
           
-          // Only do initial positioning if this is the first time focusing
-          if (followTargetOnce) {
-            const currentDistance = camera.position.distanceTo(cameraTarget.position);
+          // Get current target position (updated from physics)
+          const planetPosition = cameraTarget.position.clone();
+          
+          // Calculate how far the planet has moved since last frame
+          const targetOffset = planetPosition.clone().sub(controls.target);
+          const offsetDistance = targetOffset.length();
+          
+          // Calculate smooth lerp factor based on frameDelta for consistent speed
+          // Adaptive lerp: if planet is moving fast (large offset), use faster lerp to catch up
+          let baseLerpFactor = Math.min(1.0, frameDelta * 3.0);
+          
+          if (offsetDistance > 50) {
+            baseLerpFactor = Math.min(1.0, frameDelta * 8.0);
+          } else if (offsetDistance > 20) {
+            baseLerpFactor = Math.min(1.0, frameDelta * 5.0);
+          } else if (offsetDistance > 5) {
+            baseLerpFactor = Math.min(1.0, frameDelta * 3.0);
+          } else {
+            baseLerpFactor = Math.min(1.0, frameDelta * 1.5);
+          }
+          
+          // Only do initial positioning if this is the first time focusing AND user hasn't zoomed
+          if (followTargetOnce && !userZooming) {
+            const currentDistance = camera.position.distanceTo(planetPosition);
             const desiredDistance = planet.spectatingDistance;
             
             // Only adjust camera position if we're far from the desired distance
             if (Math.abs(currentDistance - desiredDistance) > 10) {
               // Smoothly move camera to a good viewing distance
-              const direction = camera.position.clone().sub(cameraTarget.position).normalize();
-              const newPosition = cameraTarget.position.clone().add(direction.multiplyScalar(desiredDistance));
-              camera.position.lerp(newPosition, 0.05);
+              const direction = camera.position.clone().sub(planetPosition).normalize();
+              const newPosition = planetPosition.clone().add(direction.multiplyScalar(desiredDistance));
+              camera.position.lerp(newPosition, baseLerpFactor * 0.5);
               
               // Also update target during initial positioning
-              controls.target.lerp(cameraTarget.position, 0.1);
+              controls.target.lerp(planetPosition, baseLerpFactor);
             } else {
-              // We're at a good distance, stop forcing position
+              // We're at a good distance, start following
               followTargetOnce = false;
-              // Set target once, then let user control
-              controls.target.copy(cameraTarget.position);
+              // Update both target and camera position to follow planet
+              controls.target.lerp(planetPosition, baseLerpFactor);
+              
+              // Calculate camera offset from planet and apply it to new planet position
+              const cameraOffset = camera.position.clone().sub(controls.target);
+              const newCameraPosition = planetPosition.clone().add(cameraOffset);
+              camera.position.lerp(newCameraPosition, baseLerpFactor);
             }
           } else {
-            // After initial positioning, smoothly update target to follow planet
-            // But do it in a way that doesn't interfere with user input
-            // Calculate the offset from current target to planet
-            const targetOffset = cameraTarget.position.clone().sub(controls.target);
-            const offsetLength = targetOffset.length();
+            // Continuously update both target and camera position to follow planet
+            // This makes the camera move through space with the planet
+            // If user zoomed, we preserve their chosen distance but still follow position
             
-            // Only update if the offset is significant (planet has moved)
-            // Use a very slow lerp so it doesn't interfere with user input
-            // The key is to update BEFORE controls.update() so user input can override it
-            if (offsetLength > 5.0) {
-              // Planet has moved significantly, slowly drift target towards it
-              // Very slow update - this allows user to zoom/pan freely
-              controls.target.lerp(cameraTarget.position, 0.01);
-            } else if (offsetLength > 1.0) {
-              // Planet has moved moderately, very slow drift
-              controls.target.lerp(cameraTarget.position, 0.005);
-            } else if (offsetLength > 0.5) {
-              // Planet has moved slightly, minimal drift
-              controls.target.lerp(cameraTarget.position, 0.002);
+            // Update the target (what the camera is looking at)
+            controls.target.lerp(planetPosition, baseLerpFactor);
+            
+            // Calculate the offset from the current target to the camera
+            // This preserves the user's chosen viewing angle and distance
+            const cameraOffset = camera.position.clone().sub(controls.target);
+            const currentDistance = cameraOffset.length();
+            
+            // Calculate minimum safe distance (at least 2x planet radius to prevent going inside)
+            const minSafeDistance = planet.radius * 2.5;
+            
+            // If current distance is too close, push camera out to safe distance
+            let adjustedOffset = cameraOffset;
+            if (currentDistance < minSafeDistance) {
+              // Normalize and scale to minimum safe distance
+              adjustedOffset = cameraOffset.normalize().multiplyScalar(minSafeDistance);
             }
-            // If offset is very small, don't update - let user control freely
-            // This ensures user input always takes precedence
+            
+            // Apply the offset to the new planet position to move camera with planet
+            const desiredCameraPosition = planetPosition.clone().add(adjustedOffset);
+            
+            // Smoothly move camera to the new position
+            camera.position.lerp(desiredCameraPosition, baseLerpFactor);
           }
         }
       }
@@ -831,11 +989,24 @@ const PlanetariumScene = () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('resize', handleResize);
       renderer.domElement.removeEventListener('click', onClick);
+      renderer.domElement.removeEventListener('wheel', onCameraZoom);
+      if (zoomTimeout) clearTimeout(zoomTimeout);
       mountRef.current?.removeChild(renderer.domElement);
       
       if (physicsWorkerRef.current) {
         physicsWorkerRef.current.terminate();
       }
+
+      // Clean up probe trajectory lines
+      probeTrajectoryLinesRef.current.forEach((line) => {
+        if (line && sceneRef.current) {
+          sceneRef.current.remove(line);
+          line.geometry?.dispose();
+          line.material?.dispose();
+        }
+      });
+      probeTrajectoryLinesRef.current.clear();
+      probeTrajectoryPointsRef.current.clear();
 
       // Clean up Three.js objects
       scene.traverse(object => {
@@ -919,6 +1090,7 @@ const PlanetariumScene = () => {
 
   const [earthData, setEarthData] = useState(null);
   const [allBodiesData, setAllBodiesData] = useState([]);
+  const [selectedBodyLiveData, setSelectedBodyLiveData] = useState(null);
 
   // Update Earth and bodies data for ProbeLauncher
   useEffect(() => {
@@ -938,6 +1110,79 @@ const PlanetariumScene = () => {
         velocity: { x: body.velocity.x, y: body.velocity.y, z: body.velocity.z }
       }));
       setAllBodiesData(allBodies);
+
+      // Update live data for selected body
+      if (selectedBody) {
+        // Try to find the body by ID first (works for both planets and probes)
+        let currentBody = [...bodiesRef.current, ...probesRef.current].find(
+          b => b.id === selectedBody.id
+        );
+        
+        // If not found by ID, try by name (for planets)
+        if (!currentBody && selectedBody.name) {
+          currentBody = bodiesRef.current.find(b => b.name === selectedBody.name);
+        }
+        
+        if (currentBody) {
+          // Find the mesh to get current rotation
+          const bodyIndex = bodiesRef.current.findIndex(b => b.id === currentBody.id || b.name === currentBody.name);
+          const mesh = bodyIndex !== -1 ? bodyMeshesRef.current[bodyIndex] : null;
+          
+          // Calculate probe-specific statistics
+          let probeStats = null;
+          if (currentBody instanceof Probe) {
+            const timeSinceLaunch = (Date.now() - currentBody.launchTime) / 1000; // seconds
+            const distanceFromEarth = currentBody.getDistanceTo ? 
+              (() => {
+                const earth = bodiesRef.current.find(b => b.name === 'Earth');
+                return earth ? currentBody.getDistanceTo(earth) : 0;
+              })() : 0;
+            
+            // Find closest planet
+            let closestPlanet = null;
+            let closestDistance = Infinity;
+            bodiesRef.current.forEach(body => {
+              if (body.name !== 'Sun' && currentBody.getDistanceTo) {
+                const dist = currentBody.getDistanceTo(body);
+                if (dist < closestDistance) {
+                  closestDistance = dist;
+                  closestPlanet = body.name;
+                }
+              }
+            });
+            
+            probeStats = {
+              timeSinceLaunch,
+              distanceFromEarth,
+              closestPlanet,
+              closestDistance
+            };
+          }
+          
+          setSelectedBodyLiveData({
+            speed: currentBody.getSpeed ? currentBody.getSpeed() : 0,
+            position: {
+              x: currentBody.position.x,
+              y: currentBody.position.y,
+              z: currentBody.position.z
+            },
+            velocity: {
+              x: currentBody.velocity.x,
+              y: currentBody.velocity.y,
+              z: currentBody.velocity.z
+            },
+            sidereelTime: currentBody.sidereelTime || null,
+            angularVelocity: currentBody.angularVelocity || null,
+            currentRotation: mesh ? mesh.rotation.y : null,
+            probeStats: probeStats
+          });
+        } else {
+          // If body not found, clear live data
+          setSelectedBodyLiveData(null);
+        }
+      } else {
+        setSelectedBodyLiveData(null);
+      }
     };
 
     // Update periodically to keep data fresh
@@ -945,7 +1190,7 @@ const PlanetariumScene = () => {
     updateData(); // Initial update
     
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedBody]);
 
   // Camera preset handler
   const handleCameraPreset = useCallback((planetName) => {
@@ -993,55 +1238,130 @@ const PlanetariumScene = () => {
 
       {selectedBody && (
         <div
-          className={`fixed top-0 right-0 h-full w-80 bg-gradient-to-b from-gray-900 to-black text-white p-6 shadow-2xl overflow-y-auto
-              transform transition-transform duration-300 ease-in-out
+          className={`fixed top-0 right-0 h-screen w-80 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-2xl
+              transform transition-transform duration-300 ease-in-out backdrop-blur-xl
+              border-l border-slate-700/50 flex flex-col
               ${isInfoVisible ? 'translate-x-0' : 'translate-x-full'}`}
+          style={{
+            background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 50%, rgba(15, 23, 42, 0.95) 100%)',
+          }}
         >
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold">{selectedBody.name}</h2>
-            <button
-              onClick={() => setIsInfoVisible(false)}
-              className="text-gray-400 hover:text-white text-2xl font-bold"
-            >
-              ×
-            </button>
+          {/* Header with gradient accent */}
+          <div className="flex-shrink-0 bg-gradient-to-r from-blue-600/20 via-purple-600/20 to-pink-600/20 backdrop-blur-md border-b border-slate-700/50 px-4 py-3">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+                  {selectedBody.name}
+                </h2>
+                {PLANET_INFO[selectedBody.name] && (
+                  <p className="text-xs text-slate-400 mt-0.5 font-medium">
+                    {PLANET_INFO[selectedBody.name].type}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => setIsInfoVisible(false)}
+                className="text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg p-1.5 transition-all duration-200 text-xl font-light"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
           </div>
+
+          <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-3 space-y-3">
 
           {PLANET_INFO[selectedBody.name] ? (
             <>
-              <div className="mb-4">
-                <span className="text-sm text-gray-400">{PLANET_INFO[selectedBody.name].type}</span>
+              {/* Description Card */}
+              <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50 backdrop-blur-sm">
+                <p className="text-slate-300 leading-relaxed text-xs">
+                  {PLANET_INFO[selectedBody.name].description}
+                </p>
               </div>
-              <p className="text-gray-300 mb-4 leading-relaxed">
-                {PLANET_INFO[selectedBody.name].description}
-              </p>
               
-              <div className="space-y-3 mb-4">
-                <div>
-                  <span className="text-gray-400 text-sm">Distance from Sun:</span>
-                  <p className="text-white">{PLANET_INFO[selectedBody.name].distance}</p>
+              {/* Key Stats Grid */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30 hover:border-blue-500/50 transition-colors">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Distance from Sun</div>
+                  <div className="text-sm font-bold text-blue-400">{PLANET_INFO[selectedBody.name].distance}</div>
                 </div>
-                <div>
-                  <span className="text-gray-400 text-sm">Orbital Period:</span>
-                  <p className="text-white">{PLANET_INFO[selectedBody.name].orbitalPeriod}</p>
+                <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30 hover:border-purple-500/50 transition-colors">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Orbital Period</div>
+                  <div className="text-sm font-bold text-purple-400">{PLANET_INFO[selectedBody.name].orbitalPeriod}</div>
                 </div>
-                <div>
-                  <span className="text-gray-400 text-sm">Day Length:</span>
-                  <p className="text-white">{PLANET_INFO[selectedBody.name].dayLength}</p>
+                <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30 hover:border-pink-500/50 transition-colors">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Day Length</div>
+                  <div className="text-sm font-bold text-pink-400">{PLANET_INFO[selectedBody.name].dayLength}</div>
                 </div>
-                <div>
-                  <span className="text-gray-400 text-sm">Moons:</span>
-                  <p className="text-white">{PLANET_INFO[selectedBody.name].moons}</p>
+                <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30 hover:border-cyan-500/50 transition-colors">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Moons</div>
+                  <div className="text-sm font-bold text-cyan-400">{PLANET_INFO[selectedBody.name].moons}</div>
                 </div>
               </div>
 
-              <div className="border-t border-gray-700 pt-4">
-                <h3 className="text-lg font-semibold mb-2">Key Facts</h3>
-                <ul className="space-y-2 text-sm text-gray-300">
+              {/* Live Data Section */}
+              <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 rounded-lg p-3 border border-blue-500/20">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div>
+                  <h3 className="text-sm font-bold text-slate-200">Live Data</h3>
+                </div>
+                <div className="space-y-2">
+                  <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
+                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5 font-semibold">Speed</div>
+                    <div className="text-sm font-mono font-bold text-green-400">
+                      {selectedBodyLiveData ? selectedBodyLiveData.speed.toFixed(6) : '0.000000'} <span className="text-xs text-slate-400 font-normal">units/s</span>
+                    </div>
+                  </div>
+                  {selectedBodyLiveData && (
+                    <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 font-semibold">Position</div>
+                      <div className="grid grid-cols-3 gap-1.5 font-mono text-xs">
+                        <div>
+                          <div className="text-slate-400 text-[10px]">X</div>
+                          <div className="text-blue-400 font-semibold">{selectedBodyLiveData.position.x.toFixed(2)}</div>
+                        </div>
+                        <div>
+                          <div className="text-slate-400 text-[10px]">Y</div>
+                          <div className="text-purple-400 font-semibold">{selectedBodyLiveData.position.y.toFixed(2)}</div>
+                        </div>
+                        <div>
+                          <div className="text-slate-400 text-[10px]">Z</div>
+                          <div className="text-pink-400 font-semibold">{selectedBodyLiveData.position.z.toFixed(2)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {selectedBodyLiveData && selectedBodyLiveData.sidereelTime !== null && (
+                    <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 font-semibold">Sidereal Rotation</div>
+                      <div className="space-y-1 text-[10px]">
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Sidereal Time:</span>
+                          <span className="text-cyan-400 font-mono font-semibold">{selectedBodyLiveData.sidereelTime ? (Math.abs(selectedBodyLiveData.sidereelTime) / 86400).toFixed(2) : 'N/A'} days</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Angular Velocity:</span>
+                          <span className="text-yellow-400 font-mono font-semibold">{selectedBodyLiveData.angularVelocity ? selectedBodyLiveData.angularVelocity.toFixed(8) : 'N/A'} rad/s</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Current Rotation:</span>
+                          <span className="text-orange-400 font-mono font-semibold">{selectedBodyLiveData.currentRotation !== null ? (selectedBodyLiveData.currentRotation.toFixed(4)) : 'N/A'} rad</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Key Facts Section */}
+              <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
+                <h3 className="text-sm font-bold mb-2 text-slate-200">Key Facts</h3>
+                <ul className="space-y-1.5">
                   {PLANET_INFO[selectedBody.name].facts.map((fact, i) => (
-                    <li key={i} className="flex items-start">
-                      <span className="text-blue-400 mr-2">•</span>
-                      <span>{fact}</span>
+                    <li key={i} className="flex items-start gap-2 group">
+                      <div className="mt-1 w-1 h-1 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full flex-shrink-0 group-hover:scale-150 transition-transform"></div>
+                      <span className="text-slate-300 text-xs leading-relaxed">{fact}</span>
                     </li>
                   ))}
                 </ul>
@@ -1049,83 +1369,175 @@ const PlanetariumScene = () => {
             </>
           ) : (
             <>
-              <div className="space-y-2 mb-4">
-                <div>
-                  <span className="text-gray-400 text-sm">Radius:</span>
-                  <p className="text-white">{selectedBody.radius.toFixed(2)} units</p>
+              {/* Basic Info Cards */}
+              <div className="grid grid-cols-1 gap-2">
+                <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Radius</div>
+                  <div className="text-sm font-bold text-blue-400 font-mono">{selectedBody.radius.toFixed(2)} <span className="text-xs text-slate-400 font-normal">units</span></div>
                 </div>
-                <div>
-                  <span className="text-gray-400 text-sm">Mass:</span>
-                  <p className="text-white">{selectedBody.mass.toFixed(2)} Earth masses</p>
+                <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Mass</div>
+                  <div className="text-sm font-bold text-purple-400 font-mono">{selectedBody.mass.toFixed(2)} <span className="text-xs text-slate-400 font-normal">Earth masses</span></div>
                 </div>
                 {selectedBody.sidereelTime && (
-                  <div>
-                    <span className="text-gray-400 text-sm">Orbital Period:</span>
-                    <p className="text-white">{(selectedBody.sidereelTime / 86400).toFixed(1)} days</p>
+                  <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30">
+                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Rotation Period</div>
+                    <div className="text-sm font-bold text-pink-400 font-mono">{(Math.abs(selectedBody.sidereelTime) / 86400).toFixed(1)} <span className="text-xs text-slate-400 font-normal">days</span></div>
                   </div>
                 )}
               </div>
-              {selectedBody instanceof Probe && (
-                <div className="border-t border-gray-700 pt-4">
-                  <h3 className="text-lg font-semibold mb-2">Probe Information</h3>
-                  <div className="space-y-2 text-sm">
-                    <div>
-                      <span className="text-gray-400">Speed:</span>
-                      <p className="text-white">{selectedBody.getSpeed().toFixed(6)} units/s</p>
-                    </div>
-                    <div>
-                      <span className="text-gray-400">Status:</span>
-                      <p className="text-white">{selectedBody.isActive ? 'Active' : 'Inactive'}</p>
+              
+              {/* Live Data Section */}
+              <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 rounded-lg p-3 border border-blue-500/20">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div>
+                  <h3 className="text-sm font-bold text-slate-200">Live Data</h3>
+                </div>
+                <div className="space-y-2">
+                  <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
+                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5 font-semibold">Speed</div>
+                    <div className="text-sm font-mono font-bold text-green-400">
+                      {selectedBodyLiveData ? selectedBodyLiveData.speed.toFixed(6) : (selectedBody.getSpeed ? selectedBody.getSpeed().toFixed(6) : '0.000000')} <span className="text-xs text-slate-400 font-normal">units/s</span>
                     </div>
                   </div>
+                  {selectedBodyLiveData && (
+                    <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 font-semibold">Position</div>
+                      <div className="grid grid-cols-3 gap-1.5 font-mono text-xs">
+                        <div>
+                          <div className="text-slate-400 text-[10px]">X</div>
+                          <div className="text-blue-400 font-semibold">{selectedBodyLiveData.position.x.toFixed(2)}</div>
+                        </div>
+                        <div>
+                          <div className="text-slate-400 text-[10px]">Y</div>
+                          <div className="text-purple-400 font-semibold">{selectedBodyLiveData.position.y.toFixed(2)}</div>
+                        </div>
+                        <div>
+                          <div className="text-slate-400 text-[10px]">Z</div>
+                          <div className="text-pink-400 font-semibold">{selectedBodyLiveData.position.z.toFixed(2)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {selectedBodyLiveData && selectedBodyLiveData.sidereelTime !== null && (
+                    <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 font-semibold">Sidereal Rotation</div>
+                      <div className="space-y-1 text-[10px]">
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Sidereal Time:</span>
+                          <span className="text-cyan-400 font-mono font-semibold">{selectedBodyLiveData.sidereelTime ? (Math.abs(selectedBodyLiveData.sidereelTime) / 86400).toFixed(2) : 'N/A'} days</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Angular Velocity:</span>
+                          <span className="text-yellow-400 font-mono font-semibold">{selectedBodyLiveData.angularVelocity ? selectedBodyLiveData.angularVelocity.toFixed(8) : 'N/A'} rad/s</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Current Rotation:</span>
+                          <span className="text-orange-400 font-mono font-semibold">{selectedBodyLiveData.currentRotation !== null ? (selectedBodyLiveData.currentRotation.toFixed(4)) : 'N/A'} rad</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {selectedBody instanceof Probe && (
+                <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50 space-y-2">
+                  <h3 className="text-sm font-bold mb-2 text-slate-200">Probe Information</h3>
+                  
+                  <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
+                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Status</div>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <div className={`w-1.5 h-1.5 rounded-full ${selectedBody.isActive ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`}></div>
+                      <span className={`text-xs font-bold ${selectedBody.isActive ? 'text-green-400' : 'text-red-400'}`}>
+                        {selectedBody.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {selectedBodyLiveData && selectedBodyLiveData.probeStats && (
+                    <>
+                      <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
+                        <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Mission Time</div>
+                        <div className="text-sm font-mono font-bold text-cyan-400">
+                          {Math.floor(selectedBodyLiveData.probeStats.timeSinceLaunch / 3600)}h {Math.floor((selectedBodyLiveData.probeStats.timeSinceLaunch % 3600) / 60)}m {Math.floor(selectedBodyLiveData.probeStats.timeSinceLaunch % 60)}s
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
+                        <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Distance from Earth</div>
+                        <div className="text-sm font-mono font-bold text-blue-400">
+                          {selectedBodyLiveData.probeStats.distanceFromEarth.toFixed(2)} <span className="text-xs text-slate-400 font-normal">units</span>
+                        </div>
+                      </div>
+
+                      {selectedBodyLiveData.probeStats.closestPlanet && (
+                        <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
+                          <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Closest Planet</div>
+                          <div className="text-sm font-bold text-purple-400">
+                            {selectedBodyLiveData.probeStats.closestPlanet}
+                          </div>
+                          <div className="text-xs text-slate-400 mt-0.5">
+                            {selectedBodyLiveData.probeStats.closestDistance.toFixed(2)} units away
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )}
             </>
           )}
 
-          <button
-            onClick={() => {
-              setCameraTargetName(selectedBody.name);
-              // Camera will follow in animate loop
-            }}
-            className="mt-6 w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded transition-colors"
-          >
-            Focus on {selectedBody.name}
-          </button>
-          
-          <button
-            onClick={() => {
-              setCameraTargetName(null);
-              // Unlock camera
-            }}
-            className="mt-2 w-full px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded transition-colors"
-          >
-            Unlock Camera
-          </button>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex-shrink-0 space-y-2 px-4 pb-4 pt-2 border-t border-slate-700/50">
+            <button
+              onClick={() => {
+                // Use ID for probes, name for planets
+                const targetId = selectedBody instanceof Probe ? selectedBody.id : selectedBody.name;
+                setCameraTargetName(targetId);
+                // Camera will follow in animate loop
+              }}
+              className="w-full px-3 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 rounded-lg text-sm font-semibold text-white transition-all duration-200 shadow-lg hover:shadow-blue-500/50 transform hover:scale-[1.02]"
+            >
+              Focus on {selectedBody.name}
+            </button>
+            
+            <button
+              onClick={() => {
+                setCameraTargetName(null);
+                // Unlock camera
+              }}
+              className="w-full px-3 py-2 bg-slate-700/50 hover:bg-slate-700 rounded-lg text-sm font-semibold text-slate-200 transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
+            >
+              Unlock Camera
+            </button>
+          </div>
         </div>
       )}
 
-      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-70 text-white rounded-lg px-2 py-1 flex gap-1 items-center shadow-lg">
+      <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gradient-to-br from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl text-white rounded-lg px-3 py-2 flex gap-1.5 items-center shadow-2xl border border-slate-700/50 z-30">
         <button
           onClick={() => {
-            setTimeScale(prev => Math.max(MIN_TIME_SCALE, prev - 10000));
+            setTimeScale(prev => Math.max(MIN_TIME_SCALE, prev - 1000));
           }}
-          className="bg-gray-600 hover:bg-gray-700 px-3 py-1 rounded"
+          className="bg-slate-700/50 hover:bg-slate-600/50 px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
           title="Major Decrease"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-5 h-5">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
             <path strokeLinecap="round" strokeLinejoin="round" d="M19 20l-7-8 7-8M12 20l-7-8 7-8" />
           </svg>
         </button>
 
         <button
           onClick={() => {
-            setTimeScale(prev => Math.max(MIN_TIME_SCALE, prev - 1000));
+            setTimeScale(prev => Math.max(MIN_TIME_SCALE, prev - 100));
           }}
-          className="bg-gray-600 hover:bg-gray-700 px-3 py-1 rounded"
+          className="bg-slate-700/50 hover:bg-slate-600/50 px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
           title="Slight Decrease"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-5 h-5">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
         </button>
@@ -1134,51 +1546,50 @@ const PlanetariumScene = () => {
           onClick={() => {
             setIsPaused(prev => !prev);
           }}
-          className="bg-blue-600 hover:bg-blue-700 px-4 py-1 rounded font-semibold"
+          className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 px-3 py-1.5 rounded-lg font-semibold text-sm transition-all duration-200 shadow-lg hover:shadow-blue-500/50 transform hover:scale-105"
           title="Pause / Resume"
         >
           {isPaused ? (
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-5 h-5 inline-block">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4 inline-block">
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v18l15-9L5 3z" />
             </svg>
           ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-5 h-5 inline-block">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4 inline-block">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 4h4v16H6zM14 4h4v16h-4z" />
             </svg>
           )}
         </button>
 
-
         <button
           onClick={() => {
-            setTimeScale(prev => Math.min(MAX_TIME_SCALE, prev + 1000));
+            setTimeScale(prev => Math.min(MAX_TIME_SCALE, prev + 100));
           }}
-          className="bg-gray-600 hover:bg-gray-700 px-3 py-1 rounded"
+          className="bg-slate-700/50 hover:bg-slate-600/50 px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
           title="Slight Increase"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-5 h-5">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
           </svg>
         </button>
 
         <button
           onClick={() => {
-            setTimeScale(prev => Math.min(MAX_TIME_SCALE, prev + 10000));
+            setTimeScale(prev => Math.min(MAX_TIME_SCALE, prev + 1000));
           }}
-          className="bg-gray-600 hover:bg-gray-700 px-3 py-1 rounded"
+          className="bg-slate-700/50 hover:bg-slate-600/50 px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
           title="Major Increase"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-5 h-5">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 4l7 8-7 8M12 4l7 8-7 8" />
           </svg>
         </button>
 
-        <div className="relative group mx-4 font-mono inline-block">
-          <div className="text-white cursor-pointer">
-            Speed: {timeScale}
+        <div className="relative group mx-3 font-mono inline-block">
+          <div className="text-sm text-slate-200 cursor-pointer font-semibold">
+            Speed: <span className="text-blue-400">{timeScale}</span>
           </div>
 
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all duration-300 z-50 px-3 py-2 w-48 pointer-events-auto">
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-all duration-300 z-50 px-4 py-3 w-56 bg-slate-800/30 backdrop-blur-xl rounded-lg border border-slate-700/50 shadow-2xl pointer-events-auto">
             <input
               type="range"
               min={MIN_TIME_SCALE}
@@ -1189,26 +1600,38 @@ const PlanetariumScene = () => {
                 const value = Number(e.target.value);
                 setTimeScale(Math.max(MIN_TIME_SCALE, Math.min(MAX_TIME_SCALE, value)));
               }}
-              className="w-full appearance-none bg-gray-700 h-2 rounded-lg
+              className="w-full appearance-none bg-slate-700 h-1.5 rounded-lg
                   [&::-webkit-slider-thumb]:appearance-none
-                  [&::-webkit-slider-thumb]:h-4
-                  [&::-webkit-slider-thumb]:w-4
+                  [&::-webkit-slider-thumb]:h-3
+                  [&::-webkit-slider-thumb]:w-3
                   [&::-webkit-slider-thumb]:rounded-full
-                  [&::-webkit-slider-thumb]:bg-gray-400
+                  [&::-webkit-slider-thumb]:bg-gradient-to-r
+                  [&::-webkit-slider-thumb]:from-blue-500
+                  [&::-webkit-slider-thumb]:to-purple-500
                   [&::-webkit-slider-thumb]:cursor-pointer
                   [&::-moz-range-thumb]:appearance-none
-                  [&::-moz-range-thumb]:h-4
-                  [&::-moz-range-thumb]:w-4
+                  [&::-moz-range-thumb]:h-3
+                  [&::-moz-range-thumb]:w-3
                   [&::-moz-range-thumb]:rounded-full
-                  [&::-moz-range-thumb]:bg-gray-400
+                  [&::-moz-range-thumb]:bg-gradient-to-r
+                  [&::-moz-range-thumb]:from-blue-500
+                  [&::-moz-range-thumb]:to-purple-500
                   [&::-moz-range-thumb]:cursor-pointer"
             />
+            <div className="flex justify-between text-xs text-slate-400 mt-1">
+              <span>{MIN_TIME_SCALE}</span>
+              <span>{MAX_TIME_SCALE}</span>
+            </div>
           </div>
         </div>
 
         <button
           onClick={() => setShowOrbits(!showOrbits)}
-          className={`px-3 py-1 rounded ${showOrbits ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-600 hover:bg-gray-700'}`}
+          className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200 border ${
+            showOrbits 
+              ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 border-green-500/50' 
+              : 'bg-slate-700/50 hover:bg-slate-600/50 border-slate-600/50'
+          }`}
           title="Toggle Orbit Paths"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-5 h-5">
@@ -1220,10 +1643,14 @@ const PlanetariumScene = () => {
         {simulationMode === 'solarSystem' && (
           <button
             onClick={() => setShowLabels(!showLabels)}
-            className={`px-3 py-1 rounded ${showLabels ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-600 hover:bg-gray-700'}`}
+            className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200 border ${
+              showLabels 
+                ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 border-green-500/50' 
+                : 'bg-slate-700/50 hover:bg-slate-600/50 border-slate-600/50'
+            }`}
             title="Toggle Planet Labels"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-5 h-5">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
               <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h10m-7 4h7" />
             </svg>
           </button>
@@ -1231,11 +1658,11 @@ const PlanetariumScene = () => {
 
         <button
           onClick={() => setIsInfoPopupVisible(true)}
-          className="fill-gray-400 hover:fill-gray-300 px-3 py-1 rounded"
+          className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
           title="Controls Information"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor"
-            strokeWidth="2" viewBox="0 0 24 24" className="w-6 h-6">
+            strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
             <path strokeLinecap="round" strokeLinejoin="round"
               d="M13 16h-1v-4h-1m1-4h.01M12 18a6 6 0 100-12 6 6 0 000 12z" />
           </svg>

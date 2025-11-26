@@ -21,17 +21,17 @@ export default function UnifiedUI({
   ];
 
   return (
-    <div className={`fixed top-4 left-4 bg-black bg-opacity-90 text-white rounded-lg shadow-2xl z-20 transition-all duration-300 ${
-      isExpanded ? 'w-80' : 'w-12'
+    <div className={`fixed top-4 left-4 bg-gradient-to-br from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl text-white rounded-lg shadow-2xl border border-slate-700/50 z-20 transition-all duration-300 ${
+      isExpanded ? 'w-72' : 'w-10'
     }`}>
       {/* Header with collapse button */}
-      <div className="flex items-center justify-between p-3 border-b border-gray-700">
+      <div className="flex items-center justify-between p-2.5 border-b border-slate-700/50 bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-600/10">
         {isExpanded && (
-          <h2 className="text-lg font-bold">Controls</h2>
+          <h2 className="text-sm font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">Controls</h2>
         )}
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="p-1 hover:bg-gray-700 rounded transition-colors"
+          className="p-1 hover:bg-slate-700/50 rounded-lg transition-all duration-200"
           title={isExpanded ? 'Collapse' : 'Expand'}
         >
           <svg 
@@ -40,7 +40,7 @@ export default function UnifiedUI({
             stroke="currentColor" 
             strokeWidth="2" 
             viewBox="0 0 24 24" 
-            className={`w-5 h-5 transition-transform ${isExpanded ? '' : 'rotate-180'}`}
+            className={`w-4 h-4 transition-transform ${isExpanded ? '' : 'rotate-180'}`}
           >
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
           </svg>
@@ -50,15 +50,15 @@ export default function UnifiedUI({
       {isExpanded && (
         <>
           {/* Tab Navigation */}
-          <div className="flex border-b border-gray-700">
+          <div className="flex border-b border-slate-700/50">
             {tabs.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${
+                className={`flex-1 px-2 py-1.5 text-xs font-semibold transition-all duration-200 ${
                   activeTab === tab.id
-                    ? 'bg-gray-700 text-white border-b-2 border-blue-500'
-                    : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                    ? 'bg-slate-800/50 text-white border-b-2 border-blue-500'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/30'
                 }`}
               >
                 <span className="mr-1">{tab.icon}</span>
@@ -68,23 +68,23 @@ export default function UnifiedUI({
           </div>
 
           {/* Tab Content */}
-          <div className="max-h-[calc(100vh-12rem)] overflow-y-auto">
+          <div className="max-h-[calc(100vh-10rem)] overflow-y-auto custom-scrollbar">
             {activeTab === 'missions' && (
-              <div className="p-4">
+              <div className="p-3">
                 <MissionObjectives {...missionsProps} />
               </div>
             )}
 
             {activeTab === 'probe' && (
-              <div className="p-4">
+              <div className="p-3">
                 <ProbeLauncher {...probeLauncherProps} />
               </div>
             )}
 
             {activeTab === 'camera' && (
-              <div className="p-4">
-                <h3 className="text-sm font-semibold mb-3 text-gray-400">Camera Presets</h3>
-                <div className="grid grid-cols-2 gap-2">
+              <div className="p-3 space-y-3">
+                <h3 className="text-xs font-semibold mb-2 text-slate-400 uppercase tracking-wider">Camera Presets</h3>
+                <div className="grid grid-cols-2 gap-1.5">
                   {['Sun', 'Mercury', 'Venus', 'Earth', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune'].map((name) => {
                     const body = cameraPresets.find(b => b && b.name === name);
                     if (!body) return null;
@@ -92,26 +92,18 @@ export default function UnifiedUI({
                       <button
                         key={name}
                         onClick={() => onCameraPreset(name)}
-                        className="px-3 py-2 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                        className="px-2 py-1.5 text-xs bg-slate-800/50 hover:bg-slate-700/50 rounded-lg transition-all duration-200 border border-slate-700/30 hover:border-blue-500/50 font-medium"
                       >
                         {name}
                       </button>
                     );
                   })}
                 </div>
-                <div className="mt-4 pt-4 border-t border-gray-700">
-                  <p className="text-xs text-gray-400 mb-2">Keyboard Shortcuts:</p>
-                  <ul className="text-xs text-gray-300 space-y-1">
-                    <li>1: Mercury</li>
-                    <li>2: Venus</li>
-                    <li>3: Earth</li>
-                    <li>4: Mars</li>
-                    <li>5: Jupiter</li>
-                    <li>6: Saturn</li>
-                    <li>7: Uranus</li>
-                    <li>8: Neptune</li>
-                    <li>9: Sun</li>
-                    <li>0: Unlock camera</li>
+                <div className="mt-3 pt-3 border-t border-slate-700/50">
+                  <p className="text-[10px] text-slate-400 mb-1.5 font-semibold uppercase tracking-wider">Keyboard Shortcuts</p>
+                  <ul className="text-[10px] text-slate-300 space-y-0.5 font-mono">
+                    <li><span className="text-blue-400">1-9:</span> Planets</li>
+                    <li><span className="text-blue-400">0:</span> Unlock</li>
                   </ul>
                 </div>
               </div>
@@ -122,7 +114,7 @@ export default function UnifiedUI({
 
       {/* Collapsed state - show icons only */}
       {!isExpanded && (
-        <div className="py-2">
+        <div className="py-1.5">
           {tabs.map(tab => (
             <button
               key={tab.id}
@@ -130,12 +122,12 @@ export default function UnifiedUI({
                 setIsExpanded(true);
                 setActiveTab(tab.id);
               }}
-              className={`w-full p-2 hover:bg-gray-700 transition-colors ${
-                activeTab === tab.id ? 'bg-gray-800' : ''
+              className={`w-full p-2 hover:bg-slate-700/50 rounded-lg transition-all duration-200 ${
+                activeTab === tab.id ? 'bg-slate-800/50' : ''
               }`}
               title={tab.label}
             >
-              <span className="text-xl">{tab.icon}</span>
+              <span className="text-lg">{tab.icon}</span>
             </button>
           ))}
         </div>
