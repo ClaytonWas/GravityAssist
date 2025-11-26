@@ -9,12 +9,14 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@nivo/pie": "^0.99.0",
     "@react-three/drei": "^10.0.7",
     "@react-three/fiber": "^9.1.2",
     "@vercel/analytics": "^1.4.1",
     "next": "^15.3.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "recharts": "^3.5.0",
     "rehype-highlight": "^7.0.1",
     "three": "^0.176.0"
   },

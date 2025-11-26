@@ -14,7 +14,17 @@ export const PLANET_INFO = {
     distance: "0 km (center of system)",
     orbitalPeriod: "N/A (center)",
     dayLength: "~25 days (rotation)",
-    moons: 0
+    moons: 0,
+    composition: [
+      { id: "Hydrogen", label: "Hydrogen", value: 73.46, color: "#FFD700" },
+      { id: "Helium", label: "Helium", value: 24.85, color: "#FFA500" },
+      { id: "Other", label: "Other", value: 1.69, color: "#FF6B35" }
+    ],
+    coreComposition: [
+      { id: "Hydrogen", label: "Hydrogen", value: 73.46, color: "#FFD700" },
+      { id: "Helium", label: "Helium", value: 24.85, color: "#FFA500" },
+      { id: "Other", label: "Other", value: 1.69, color: "#FF6B35" }
+    ]
   },
   Mercury: {
     name: "Mercury",
@@ -31,7 +41,19 @@ export const PLANET_INFO = {
     distance: "57.9 million km",
     orbitalPeriod: "88 days",
     dayLength: "59 days",
-    moons: 0
+    moons: 0,
+    composition: [
+      { id: "Iron", label: "Iron", value: 70.00, color: "#C9A961" },
+      { id: "Oxygen", label: "Oxygen", value: 20.00, color: "#4A90E2" },
+      { id: "Silicon", label: "Silicon", value: 6.00, color: "#7B68EE" },
+      { id: "Other", label: "Other", value: 4.00, color: "#95A5A6" }
+    ],
+    coreComposition: [
+      { id: "Iron", label: "Iron", value: 85.00, color: "#C9A961" },
+      { id: "Nickel", label: "Nickel", value: 5.00, color: "#E6E6FA" },
+      { id: "Sulfur", label: "Sulfur", value: 7.00, color: "#FFD700" },
+      { id: "Other", label: "Other", value: 3.00, color: "#95A5A6" }
+    ]
   },
   Venus: {
     name: "Venus",
@@ -48,7 +70,18 @@ export const PLANET_INFO = {
     distance: "108.2 million km",
     orbitalPeriod: "225 days",
     dayLength: "243 days",
-    moons: 0
+    moons: 0,
+    composition: [
+      { id: "CO2", label: "Carbon Dioxide", value: 96.5, color: "#8B4513" },
+      { id: "Nitrogen", label: "Nitrogen", value: 3.5, color: "#4169E1" },
+      { id: "Other", label: "Other", value: 0.1, color: "#708090" }
+    ],
+    coreComposition: [
+      { id: "Iron", label: "Iron", value: 80.00, color: "#C9A961" },
+      { id: "Nickel", label: "Nickel", value: 6.00, color: "#E6E6FA" },
+      { id: "Silicon", label: "Silicon", value: 8.00, color: "#7B68EE" },
+      { id: "Other", label: "Other", value: 6.00, color: "#95A5A6" }
+    ]
   },
   Earth: {
     name: "Earth",
@@ -66,7 +99,21 @@ export const PLANET_INFO = {
     distance: "149.6 million km (1 AU)",
     orbitalPeriod: "365.25 days",
     dayLength: "24 hours",
-    moons: 1
+    moons: 1,
+    composition: [
+      { id: "Nitrogen", label: "Nitrogen", value: 78.08, color: "#4169E1" },
+      { id: "Oxygen", label: "Oxygen", value: 20.95, color: "#4A90E2" },
+      { id: "Argon", label: "Argon", value: 0.93, color: "#9370DB" },
+      { id: "CO2", label: "Carbon Dioxide", value: 0.04, color: "#8B4513" },
+      { id: "Other", label: "Other", value: 0.00, color: "#708090" }
+    ],
+    coreComposition: [
+      { id: "Iron", label: "Iron", value: 85.00, color: "#C9A961" },
+      { id: "Nickel", label: "Nickel", value: 5.20, color: "#E6E6FA" },
+      { id: "Oxygen", label: "Oxygen", value: 4.80, color: "#4A90E2" },
+      { id: "Sulfur", label: "Sulfur", value: 3.00, color: "#FFD700" },
+      { id: "Other", label: "Other", value: 2.00, color: "#95A5A6" }
+    ]
   },
   Mars: {
     name: "Mars",
@@ -84,7 +131,20 @@ export const PLANET_INFO = {
     distance: "227.9 million km",
     orbitalPeriod: "687 days",
     dayLength: "24.6 hours",
-    moons: 2
+    moons: 2,
+    composition: [
+      { id: "CO2", label: "Carbon Dioxide", value: 95.3, color: "#CD5C5C" },
+      { id: "Nitrogen", label: "Nitrogen", value: 2.7, color: "#4169E1" },
+      { id: "Argon", label: "Argon", value: 1.6, color: "#9370DB" },
+      { id: "Oxygen", label: "Oxygen", value: 0.13, color: "#4A90E2" },
+      { id: "Other", label: "Other", value: 0.27, color: "#708090" }
+    ],
+    coreComposition: [
+      { id: "Iron", label: "Iron", value: 75.00, color: "#C9A961" },
+      { id: "Nickel", label: "Nickel", value: 8.00, color: "#E6E6FA" },
+      { id: "Sulfur", label: "Sulfur", value: 12.00, color: "#FFD700" },
+      { id: "Other", label: "Other", value: 5.00, color: "#95A5A6" }
+    ]
   },
   Jupiter: {
     name: "Jupiter",
@@ -102,7 +162,18 @@ export const PLANET_INFO = {
     distance: "778.5 million km",
     orbitalPeriod: "12 years",
     dayLength: "9.9 hours",
-    moons: 79
+    moons: 79,
+    composition: [
+      { id: "Hydrogen", label: "Hydrogen", value: 89.8, color: "#FFD700" },
+      { id: "Helium", label: "Helium", value: 10.2, color: "#FFA500" },
+      { id: "Other", label: "Other", value: 0.3, color: "#FF6B35" }
+    ],
+    coreComposition: [
+      { id: "RockyCore", label: "Rocky Core", value: 15.00, color: "#8B7355" },
+      { id: "MetallicHydrogen", label: "Metallic Hydrogen", value: 75.00, color: "#C0C0C0" },
+      { id: "Helium", label: "Helium", value: 8.00, color: "#FFA500" },
+      { id: "Other", label: "Other", value: 2.00, color: "#FF6B35" }
+    ]
   },
   Saturn: {
     name: "Saturn",
@@ -120,7 +191,18 @@ export const PLANET_INFO = {
     distance: "1,432 million km",
     orbitalPeriod: "29 years",
     dayLength: "10.7 hours",
-    moons: 82
+    moons: 82,
+    composition: [
+      { id: "Hydrogen", label: "Hydrogen", value: 96.3, color: "#FAD5A5" },
+      { id: "Helium", label: "Helium", value: 3.25, color: "#FFA500" },
+      { id: "Other", label: "Other", value: 0.45, color: "#FF6B35" }
+    ],
+    coreComposition: [
+      { id: "RockyCore", label: "Rocky Core", value: 20.00, color: "#8B7355" },
+      { id: "MetallicHydrogen", label: "Metallic Hydrogen", value: 70.00, color: "#C0C0C0" },
+      { id: "Helium", label: "Helium", value: 8.00, color: "#FFA500" },
+      { id: "Other", label: "Other", value: 2.00, color: "#FF6B35" }
+    ]
   },
   Uranus: {
     name: "Uranus",
@@ -138,7 +220,19 @@ export const PLANET_INFO = {
     distance: "2,867 million km",
     orbitalPeriod: "84 years",
     dayLength: "17.2 hours",
-    moons: 27
+    moons: 27,
+    composition: [
+      { id: "Hydrogen", label: "Hydrogen", value: 82.5, color: "#4FD0E7" },
+      { id: "Helium", label: "Helium", value: 15.2, color: "#87CEEB" },
+      { id: "Methane", label: "Methane", value: 2.3, color: "#20B2AA" },
+      { id: "Other", label: "Other", value: 0.1, color: "#708090" }
+    ],
+    coreComposition: [
+      { id: "RockyCore", label: "Rocky Core", value: 25.00, color: "#8B7355" },
+      { id: "WaterIce", label: "Water Ice", value: 60.00, color: "#87CEEB" },
+      { id: "MethaneIce", label: "Methane Ice", value: 12.00, color: "#20B2AA" },
+      { id: "Other", label: "Other", value: 3.00, color: "#708090" }
+    ]
   },
   Neptune: {
     name: "Neptune",
@@ -156,7 +250,19 @@ export const PLANET_INFO = {
     distance: "4,515 million km",
     orbitalPeriod: "165 years",
     dayLength: "16.1 hours",
-    moons: 14
+    moons: 14,
+    composition: [
+      { id: "Hydrogen", label: "Hydrogen", value: 80.00, color: "#4B70DD" },
+      { id: "Helium", label: "Helium", value: 19.00, color: "#5F9EA0" },
+      { id: "Methane", label: "Methane", value: 1.50, color: "#20B2AA" },
+      { id: "Other", label: "Other", value: 0.50, color: "#708090" }
+    ],
+    coreComposition: [
+      { id: "RockyCore", label: "Rocky Core", value: 30.00, color: "#8B7355" },
+      { id: "WaterIce", label: "Water Ice", value: 55.00, color: "#5F9EA0" },
+      { id: "MethaneIce", label: "Methane Ice", value: 12.00, color: "#20B2AA" },
+      { id: "Other", label: "Other", value: 3.00, color: "#708090" }
+    ]
   }
 };
 

@@ -9,6 +9,7 @@ import ProbeLauncher from '@/app/planetarium/components/ProbeLauncher';
 import PlanetLabels from '@/app/planetarium/components/PlanetLabels';
 import MissionObjectives from '@/app/planetarium/components/MissionObjectives';
 import UnifiedUI from '@/app/planetarium/components/UnifiedUI';
+import CompositionChart from '@/app/planetarium/components/CompositionChart';
 import { predictTrajectory, rk4Step } from '@/app/planetarium/core/physics';
 import { SOLAR_SYSTEM_DATA, getInitialOrbitalData, getVisualRadius } from '@/app/planetarium/core/solarSystemData';
 import { PLANET_INFO } from '@/app/planetarium/core/planetInfo';
@@ -212,11 +213,17 @@ const PlanetariumScene = () => {
   const [isPaused, setIsPaused] = useState(false);
   const [selectedBody, setSelectedBody] = useState(null);
   const [isInfoVisible, setIsInfoVisible] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(320); // Default width: 320px (w-80)
+  const [isResizing, setIsResizing] = useState(false);
+  const compositionChartRef = useRef(null);
+  const [hoveredCompositionId, setHoveredCompositionId] = useState(null);
+  const [compositionTab, setCompositionTab] = useState('atmosphere'); // 'atmosphere' or 'core'
   const [isInfoPopupVisible, setIsInfoPopupVisible] = useState(false);
   const [showOrbits, setShowOrbits] = useState(true);
   const simulationMode = 'solarSystem'; // Always solar system
   const [showLabels, setShowLabels] = useState(true);
   const [cameraTargetName, setCameraTargetName] = useState(null);
+  const [unlitBodies, setUnlitBodies] = useState(new Set()); // Track which bodies have lighting disabled
   const showOrbitsRef = useRef(showOrbits);
 
   const timeScaleRef = useRef(timeScale);
@@ -420,8 +427,9 @@ const PlanetariumScene = () => {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.0; // Standard exposure
     
-    // Use legacy lights for more predictable behavior with moving objects
-    // Physically based lighting can have issues with dynamic scenes
+    // Use physically based lighting - MeshStandardMaterial works better with this
+    // Try legacy lights - might work better with our setup
+    // With legacy lights, intensity values are more straightforward
     renderer.useLegacyLights = true;
     
     // Ensure lights are properly enabled
@@ -548,44 +556,24 @@ const PlanetariumScene = () => {
 
     bodiesRef.current = initialBodies;
 
-    // Very minimal ambient light - just enough to prevent pure black
-    const ambientLight = new THREE.AmbientLight(0x404080, 0.1);
+    // Ambient light - minimal to prevent complete darkness
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.10);
     scene.add(ambientLight);
 
-    // Use DirectionalLight - simpler and more reliable than PointLight
-    // DirectionalLight simulates sunlight (parallel rays from far away)
-    const sunLight = new THREE.DirectionalLight(0xfff4e6, 3.0);
+    // Create PointLight at the sun - emits light in all directions
+    const sunLight = new THREE.PointLight(0xfff4e6, 30000.0, 0); // distance 0 = infinite range
     sunLight.castShadow = true;
-    
-    // Position the light far away (directional lights work from position)
-    // Point it toward the origin where planets orbit
-    sunLight.position.set(1000, 1000, 1000);
-    sunLight.target.position.set(0, 0, 0);
     
     // Shadow settings
     sunLight.shadow.mapSize.width = 2048;
     sunLight.shadow.mapSize.height = 2048;
     sunLight.shadow.camera.near = 0.1;
     sunLight.shadow.camera.far = 100000;
-    sunLight.shadow.camera.left = -50000;
-    sunLight.shadow.camera.right = 50000;
-    sunLight.shadow.camera.top = 50000;
-    sunLight.shadow.camera.bottom = -50000;
+    sunLight.shadow.radius = 8;
+    sunLight.shadow.bias = -0.0001;
     
-    // Add light and target to scene
+    sunLight.position.set(0, 0, 0);
     scene.add(sunLight);
-    scene.add(sunLight.target);
-    
-    // Debug helper
-    const lightHelper = new THREE.DirectionalLightHelper(sunLight, 50);
-    scene.add(lightHelper);
-    
-    console.log('DirectionalLight created:', {
-      intensity: sunLight.intensity,
-      position: sunLight.position,
-      target: sunLight.target.position,
-      color: sunLight.color.getHexString()
-    });
 
     // Create solar flares group
     const solarFlaresGroup = new THREE.Group();
@@ -702,8 +690,8 @@ const PlanetariumScene = () => {
             // Combine texture with plasma effect
             vec3 color = texColor.rgb * finalColor * plasmaWave;
             
-            // Add emissive glow that varies
-            float emissiveIntensity = 1.0 + sin(time * 0.5) * 0.2 + sin(time * 1.3) * 0.15;
+            // Add emissive glow that varies - much brighter base value
+            float emissiveIntensity = 1.5 + sin(time * 0.5) * 0.15 + sin(time * 1.3) * 0.05;
             color *= emissiveIntensity;
             
             // Add edge glow
@@ -726,19 +714,11 @@ const PlanetariumScene = () => {
         });
         
       } else {
-        // Regular planets with textures - use MeshStandardMaterial for realistic lighting
+        // Regular planets with textures
         const texture = textureLoader.load(`/planetarium/textures/${body.name}.jpg`);
-        material = new THREE.MeshStandardMaterial({ 
+        material = new THREE.MeshLambertMaterial({ 
           map: texture,
-          roughness: 0.8,
-          metalness: 0.0,
-          // Ensure planets respond well to lighting - use white so texture shows properly
-          color: 0xffffff,
-          // Make sure material responds to lights (not flat shaded)
-          flatShading: false,
-          // Ensure material is not emissive (which would ignore lighting)
-          emissive: 0x000000,
-          emissiveIntensity: 0.0
+          color: 0xffffff
         });
       }
       
@@ -930,25 +910,10 @@ const PlanetariumScene = () => {
           // CRITICAL: Update mesh position from body position - this makes bodies visible
           mesh.position.set(body.position.x, body.position.y, body.position.z);
           
-          // Update sun light direction - CRITICAL: must update every frame
+          // Update sun light position
           if (body.name === 'Sun') {
-            const sunPos = mesh.position;
-            // Position directional light far from sun, pointing toward sun
-            // This creates light coming FROM the sun toward planets
-            const lightDistance = 10000;
-            sunLight.position.set(
-              sunPos.x - lightDistance,
-              sunPos.y - lightDistance,
-              sunPos.z - lightDistance
-            );
-            // Point light target at sun position (light rays come from opposite direction)
-            sunLight.target.position.copy(sunPos);
-            sunLight.target.updateMatrixWorld();
+            sunLight.position.copy(mesh.position);
             sunLight.updateMatrixWorld();
-            // Update helper
-            if (lightHelper) {
-              lightHelper.update();
-            }
           }
           
           if (!isPausedRef.current) {
@@ -1506,6 +1471,122 @@ const PlanetariumScene = () => {
     setIsInfoVisible(false);
   }, [cameraTargetName]);
 
+  // Toggle lighting for selected body
+  const handleToggleLighting = useCallback(() => {
+    if (!selectedBody || !sceneRef.current) return;
+    
+    const bodyName = selectedBody.name;
+    const bodyIndex = bodiesRef.current.findIndex(b => b.name === bodyName);
+    
+    if (bodyIndex === -1) return;
+    
+    const mesh = bodyMeshesRef.current[bodyIndex];
+    if (!mesh || !mesh.material) return;
+    
+    // Skip sun (it uses a shader material)
+    if (bodyName === 'Sun') return;
+    
+    const isCurrentlyUnlit = unlitBodies.has(bodyName);
+    const currentTexture = mesh.material.map; // Preserve existing texture
+    
+    // Dispose old material
+    mesh.material.dispose();
+    
+    if (isCurrentlyUnlit) {
+      // Restore lit material (MeshLambertMaterial)
+      mesh.material = new THREE.MeshLambertMaterial({ 
+        map: currentTexture,
+        color: 0xffffff
+      });
+      
+      // Remove from unlit set
+      setUnlitBodies(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(bodyName);
+        return newSet;
+      });
+    } else {
+      // Switch to unlit material (MeshBasicMaterial)
+      mesh.material = new THREE.MeshBasicMaterial({ 
+        map: currentTexture,
+        color: 0xffffff
+      });
+      
+      // Add to unlit set
+      setUnlitBodies(prev => new Set(prev).add(bodyName));
+    }
+  }, [selectedBody, unlitBodies]);
+
+  // Helper function to check if two compositions are the same
+  const compositionsAreEqual = (comp1, comp2) => {
+    if (!comp1 || !comp2) return false;
+    if (comp1.length !== comp2.length) return false;
+    
+    const sorted1 = [...comp1].sort((a, b) => a.id.localeCompare(b.id));
+    const sorted2 = [...comp2].sort((a, b) => a.id.localeCompare(b.id));
+    
+    return sorted1.every((item, index) => {
+      const other = sorted2[index];
+      return item.id === other.id && 
+             item.value === other.value && 
+             item.color === other.color;
+    });
+  };
+
+  // Reset composition tab when selected body changes
+  useEffect(() => {
+    if (selectedBody && PLANET_INFO[selectedBody.name]) {
+      const planetInfo = PLANET_INFO[selectedBody.name];
+      const hasAtmosphere = planetInfo.composition;
+      const hasCore = planetInfo.coreComposition;
+      const areSame = compositionsAreEqual(planetInfo.composition, planetInfo.coreComposition);
+      
+      // Default to core first if available, otherwise atmosphere
+      if (hasCore && !areSame) {
+        setCompositionTab('core');
+      } else if (hasAtmosphere) {
+        setCompositionTab('atmosphere');
+      } else if (hasCore) {
+        setCompositionTab('core');
+      }
+      setHoveredCompositionId(null);
+    }
+  }, [selectedBody]);
+
+  // Resize handlers for side panel
+  const handleResizeStart = useCallback((e) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  const handleResize = useCallback((e) => {
+    if (!isResizing) return;
+    
+    const newWidth = window.innerWidth - e.clientX;
+    const minWidth = 280;
+    const maxWidth = Math.min(800, window.innerWidth * 0.8);
+    
+    if (newWidth >= minWidth && newWidth <= maxWidth) {
+      setPanelWidth(newWidth);
+    }
+  }, [isResizing]);
+
+  const handleResizeEnd = useCallback(() => {
+    setIsResizing(false);
+  }, []);
+
+  useEffect(() => {
+    if (isResizing) {
+      window.addEventListener('mousemove', handleResize);
+      window.addEventListener('mouseup', handleResizeEnd);
+      
+      return () => {
+        window.removeEventListener('mousemove', handleResize);
+        window.removeEventListener('mouseup', handleResizeEnd);
+      };
+    }
+  }, [isResizing, handleResize, handleResizeEnd]);
+
   return (
     <>
       <div ref={mountRef} className="w-full h-full" />
@@ -1541,14 +1622,34 @@ const PlanetariumScene = () => {
 
       {selectedBody && (
         <div
-          className={`fixed top-0 right-0 h-screen w-80 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-2xl
-              transform transition-transform duration-300 ease-in-out backdrop-blur-xl
-              border-l border-slate-700/50 flex flex-col
-              ${isInfoVisible ? 'translate-x-0' : 'translate-x-full'}`}
+          className={`fixed top-0 right-0 h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-2xl
+              transform backdrop-blur-xl border-l border-slate-700/50 flex flex-col
+              ${isInfoVisible ? 'translate-x-0' : 'translate-x-full'}
+              ${isResizing ? '' : 'transition-transform duration-300 ease-in-out'}`}
           style={{
+            width: `${panelWidth}px`,
             background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 50%, rgba(15, 23, 42, 0.95) 100%)',
           }}
         >
+          {/* Resize Handle */}
+          <div
+            onMouseDown={handleResizeStart}
+            className={`absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize transition-all z-50 group
+              ${isResizing ? 'bg-blue-500/80' : 'bg-transparent hover:bg-blue-500/40'}`}
+            style={{
+              cursor: 'ew-resize',
+            }}
+          >
+            {/* Visual indicator dots */}
+            <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 transition-opacity
+              ${isResizing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+              <div className="flex flex-col gap-1">
+                <div className="w-1 h-1 bg-blue-400 rounded-full"></div>
+                <div className="w-1 h-1 bg-blue-400 rounded-full"></div>
+                <div className="w-1 h-1 bg-blue-400 rounded-full"></div>
+              </div>
+            </div>
+          </div>
           {/* Header with gradient accent */}
           <div className="flex-shrink-0 bg-gradient-to-r from-blue-600/20 via-purple-600/20 to-pink-600/20 backdrop-blur-md border-b border-slate-700/50 px-4 py-3">
             <div className="flex justify-between items-center">
@@ -1602,6 +1703,164 @@ const PlanetariumScene = () => {
                   <div className="text-sm font-bold text-cyan-400">{PLANET_INFO[selectedBody.name].moons}</div>
                 </div>
               </div>
+
+              {/* Composition Chart Section */}
+              {(PLANET_INFO[selectedBody.name]?.composition || PLANET_INFO[selectedBody.name]?.coreComposition) && (
+                <div 
+                  ref={compositionChartRef}
+                  className="bg-gradient-to-br from-slate-800/70 via-slate-800/60 to-slate-900/70 rounded-xl p-5 border border-slate-700/60 backdrop-blur-md shadow-2xl relative overflow-hidden flex flex-col" 
+                  style={{ minHeight: '300px' }}
+                >
+                  {/* Subtle background gradient */}
+                  <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-purple-500/5 to-pink-500/5 pointer-events-none"></div>
+                  
+                  <div className="relative z-10 flex flex-col h-full">
+                    {/* Tabs */}
+                    {(() => {
+                      const planetInfo = PLANET_INFO[selectedBody.name];
+                      const hasAtmosphere = planetInfo?.composition;
+                      const hasCore = planetInfo?.coreComposition;
+                      const areSame = compositionsAreEqual(planetInfo?.composition, planetInfo?.coreComposition);
+                      const showTabs = hasAtmosphere && hasCore && !areSame;
+                      
+                      return (
+                        <div className="flex items-center gap-2 mb-4 flex-shrink-0">
+                          <div className="h-0.5 w-8 bg-gradient-to-r from-transparent via-blue-400 to-blue-400"></div>
+                          {showTabs ? (
+                            <div className="flex gap-2 flex-1">
+                              {/* Core tab first */}
+                              {hasCore && (
+                                <button
+                                  onClick={() => {
+                                    setCompositionTab('core');
+                                    setHoveredCompositionId(null);
+                                  }}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-200 ${
+                                    compositionTab === 'core'
+                                      ? 'bg-gradient-to-r from-blue-500/30 via-purple-500/30 to-pink-500/30 text-white border border-blue-400/50'
+                                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/30 border border-transparent'
+                                  }`}
+                                >
+                                  Core
+                                </button>
+                              )}
+                              {/* Atmosphere tab second */}
+                              {hasAtmosphere && (
+                                <button
+                                  onClick={() => {
+                                    setCompositionTab('atmosphere');
+                                    setHoveredCompositionId(null);
+                                  }}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-200 ${
+                                    compositionTab === 'atmosphere'
+                                      ? 'bg-gradient-to-r from-blue-500/30 via-purple-500/30 to-pink-500/30 text-white border border-blue-400/50'
+                                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/30 border border-transparent'
+                                  }`}
+                                >
+                                  Atmosphere
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex-1">
+                              <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider bg-gradient-to-r from-blue-300 via-purple-300 to-pink-300 bg-clip-text text-transparent">
+                                {hasCore ? 'Core Composition' : 'Atmospheric Composition'}
+                              </h3>
+                            </div>
+                          )}
+                          <div className="h-0.5 flex-1 bg-gradient-to-r from-purple-400 via-pink-400 to-transparent"></div>
+                        </div>
+                      );
+                    })()}
+                    
+                    <div className={`flex items-center gap-5 flex-1 ${panelWidth >= 450 ? 'flex-row' : 'flex-col'}`}>
+                      {/* Chart */}
+                      <div 
+                        className={`relative flex items-center justify-center ${panelWidth >= 450 ? 'flex-1' : 'w-full'}`}
+                        style={{ 
+                          height: '100%',
+                          minHeight: '200px'
+                        }}
+                      >
+                        <CompositionChart 
+                          data={(() => {
+                            const planetInfo = PLANET_INFO[selectedBody.name];
+                            const areSame = compositionsAreEqual(planetInfo?.composition, planetInfo?.coreComposition);
+                            
+                            // If compositions are the same, prefer core, otherwise use selected tab
+                            if (areSame && planetInfo?.coreComposition) {
+                              return planetInfo.coreComposition;
+                            }
+                            
+                            return compositionTab === 'atmosphere' 
+                              ? planetInfo?.composition 
+                              : planetInfo?.coreComposition;
+                          })()}
+                          size={200}
+                          parentRef={compositionChartRef}
+                          onSegmentHover={(id) => setHoveredCompositionId(id)}
+                          onSegmentLeave={() => setHoveredCompositionId(null)}
+                        />
+                      </div>
+                      
+                      {/* Legend - only show if panel is wide enough, as sibling element */}
+                      {panelWidth >= 450 && (
+                        <div className="flex-shrink-0 space-y-2.5 min-w-0 flex flex-col justify-center" style={{ width: '200px' }}>
+                          {(() => {
+                            const planetInfo = PLANET_INFO[selectedBody.name];
+                            const areSame = compositionsAreEqual(planetInfo?.composition, planetInfo?.coreComposition);
+                            
+                            // If compositions are the same, prefer core, otherwise use selected tab
+                            const data = areSame && planetInfo?.coreComposition
+                              ? planetInfo.coreComposition
+                              : (compositionTab === 'atmosphere' 
+                                  ? planetInfo?.composition 
+                                  : planetInfo?.coreComposition);
+                            
+                            return data;
+                          })().map((item, index) => {
+                            const isHovered = hoveredCompositionId === item.id;
+                            return (
+                              <div 
+                                key={index}
+                                className={`flex items-center justify-between group rounded-lg px-3 py-2 transition-all duration-300 cursor-pointer border ${
+                                  isHovered 
+                                    ? 'bg-slate-700/40 border-slate-600/50' 
+                                    : 'border-transparent hover:bg-slate-700/40 hover:border-slate-600/50'
+                                }`}
+                                onMouseEnter={() => setHoveredCompositionId(item.id)}
+                                onMouseLeave={() => setHoveredCompositionId(null)}
+                              >
+                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                  <div 
+                                    className={`w-3.5 h-3.5 rounded-full flex-shrink-0 shadow-lg transition-all duration-300 ${
+                                      isHovered ? 'scale-125 shadow-xl' : 'group-hover:scale-125 group-hover:shadow-xl'
+                                    }`}
+                                    style={{ 
+                                      backgroundColor: item.color,
+                                      boxShadow: `0 0 12px ${item.color}60`
+                                    }}
+                                  ></div>
+                                  <span className={`text-xs font-semibold truncate transition-colors ${
+                                    isHovered ? 'text-white' : 'text-slate-200 group-hover:text-white'
+                                  }`}>
+                                    {item.label}
+                                  </span>
+                                </div>
+                                <span className={`text-xs font-bold ml-3 tabular-nums transition-colors flex-shrink-0 ${
+                                  isHovered ? 'text-white' : 'text-slate-100 group-hover:text-white'
+                                }`}>
+                                  {item.value.toFixed(2)}%
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Live Data Section */}
               <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 rounded-lg p-3 border border-blue-500/20">
@@ -1657,18 +1916,6 @@ const PlanetariumScene = () => {
                 </div>
               </div>
 
-              {/* Key Facts Section */}
-              <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
-                <h3 className="text-sm font-bold mb-2 text-slate-200">Key Facts</h3>
-                <ul className="space-y-1.5">
-                  {PLANET_INFO[selectedBody.name].facts.map((fact, i) => (
-                    <li key={i} className="flex items-start gap-2 group">
-                      <div className="mt-1 w-1 h-1 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full flex-shrink-0 group-hover:scale-150 transition-transform"></div>
-                      <span className="text-slate-300 text-xs leading-relaxed">{fact}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
             </>
           ) : (
             <>
@@ -1806,6 +2053,19 @@ const PlanetariumScene = () => {
             >
               Focus on {selectedBody.name}
             </button>
+            
+            {selectedBody.name !== 'Sun' && (
+              <button
+                onClick={handleToggleLighting}
+                className={`w-full px-3 py-2 rounded-lg text-sm font-semibold transition-all duration-200 border ${
+                  unlitBodies.has(selectedBody.name)
+                    ? 'bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white border-yellow-500/50'
+                    : 'bg-slate-700/50 hover:bg-slate-700 text-slate-200 border-slate-600/50 hover:border-slate-500'
+                }`}
+              >
+                {unlitBodies.has(selectedBody.name) ? '☀️ Enable Lighting' : '🌙 Disable Lighting'}
+              </button>
+            )}
             
             <button
               onClick={() => {
