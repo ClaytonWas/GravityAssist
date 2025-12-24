@@ -12,11 +12,12 @@ import UnifiedUI from '@/app/planetarium/components/UnifiedUI';
 import CompositionChart from '@/app/planetarium/components/CompositionChart';
 import { predictTrajectory, rk4Step } from '@/app/planetarium/core/physics';
 import { SOLAR_SYSTEM_DATA, getInitialOrbitalData, getVisualRadius } from '@/app/planetarium/core/solarSystemData';
+import { LEVELS } from '@/app/planetarium/core/levels';
 import { PLANET_INFO } from '@/app/planetarium/core/planetInfo';
 
 function createStarfield() {
   const texture = new THREE.TextureLoader().load("/planetarium/textures/White-Star.png");
-  const NUM_STARS = 25000;
+  const NUM_STARS = 15000; // Reduced for better performance
   const vertices = [];
   const exclusionRange = 4500;
 
@@ -46,23 +47,71 @@ function createStarfield() {
   return new THREE.Points(geometry, material);
 }
 
+// Smoothly interpolate orbit line positions towards target positions
+function interpolateOrbitLines(orbitLines, targetPaths, interpolationAmount) {
+  if (!orbitLines || !targetPaths) return;
+  
+  orbitLines.forEach((line, lineIndex) => {
+    if (!line || !targetPaths[lineIndex]) return;
+    
+    const targetPath = targetPaths[lineIndex];
+    const posAttr = line.geometry.getAttribute('position');
+    if (!posAttr || posAttr.count !== targetPath.length) return;
+    
+    for (let i = 0; i < targetPath.length; i++) {
+      const currentX = posAttr.getX(i);
+      const currentY = posAttr.getY(i);
+      const currentZ = posAttr.getZ(i);
+      
+      const targetX = targetPath[i].x;
+      const targetY = targetPath[i].y;
+      const targetZ = targetPath[i].z;
+      
+      // Lerp towards target
+      const newX = currentX + (targetX - currentX) * interpolationAmount;
+      const newY = currentY + (targetY - currentY) * interpolationAmount;
+      const newZ = currentZ + (targetZ - currentZ) * interpolationAmount;
+      
+      posAttr.setXYZ(i, newX, newY, newZ);
+    }
+    posAttr.needsUpdate = true;
+  });
+}
+
 function createOrbitLines(orbitLines, orbitPaths, bodies, scene, simulationMode = 'solarSystem') {
-  const colors = simulationMode === 'threeBody' 
-    ? [0xFF0000, 0x00FF00, 0x0000FF] // Red, Green, Blue for three bodies
-    : [
-        0x8C7853, // Mercury
-        0xFFC649, // Venus
-        0x6B93D6, // Earth
-        0xCD5C5C, // Mars
-        0xD8CA9D, // Jupiter
-        0xFAD5A5, // Saturn
-        0x4FD0E7, // Uranus
-        0x4B70DD, // Neptune
-        0xFFD700, // Sun
-      ];
+  // Planet colors with better visibility
+  const planetColors = {
+    'Mercury': 0xB5A7A7,
+    'Venus': 0xE6C87A,
+    'Earth': 0x6B93D6,
+    'Mars': 0xC1440E,
+    'Jupiter': 0xD8CA9D,
+    'Saturn': 0xF4D59E,
+    'Uranus': 0x4FD0E7,
+    'Neptune': 0x4B70DD,
+    'Sun': 0xFFD700,
+    // Three body colors
+    'Body1': 0xFF4444,
+    'Body2': 0x44FF44,
+    'Body3': 0x4444FF,
+    // Outer Wilds colors
+    'TimberHearth': 0x4A7C4E,
+    'BrittleHollow': 0x8B6B9E,
+    'GiantsDeep': 0x2E8B57,
+    'AshTwin': 0xD2691E,
+    'EmberTwin': 0xCD853F,
+    'DarkBramble': 0x4F6F6F,
+    'Interloper': 0xADD8E6
+  };
+
+  // Get non-Sun body names for color mapping
+  const nonSunBodies = bodies.filter(b => b.name !== 'Sun');
 
   orbitPaths.forEach((path, index) => {
     if (path.length < 2) return;
+
+    const bodyName = nonSunBodies[index]?.name || '';
+    const color = planetColors[bodyName] || 0xFFFFFF;
 
     const points = [];
     path.forEach(pos => {
@@ -70,15 +119,36 @@ function createOrbitLines(orbitLines, orbitPaths, bodies, scene, simulationMode 
     });
 
     if (orbitLines[index]) {
+      // Update existing line geometry
       const geometry = orbitLines[index].geometry;
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
-      geometry.attributes.position.needsUpdate = true;
+      const posAttr = geometry.getAttribute('position');
+      
+      // Only update if same number of points, otherwise recreate
+      if (posAttr && posAttr.count === path.length) {
+        for (let i = 0; i < path.length; i++) {
+          posAttr.setXYZ(i, path[i].x, path[i].y, path[i].z);
+        }
+        posAttr.needsUpdate = true;
+      } else {
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+        geometry.attributes.position.needsUpdate = true;
+      }
+      // Update color in case body changed
+      orbitLines[index].material.color.setHex(color);
     } else {
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
 
+      // Create gradient opacity along the path (fades towards the end)
+      const alphas = new Float32Array(path.length);
+      for (let i = 0; i < path.length; i++) {
+        // Fade from 0.7 at start to 0.15 at end
+        alphas[i] = 0.7 - (i / path.length) * 0.55;
+      }
+      geometry.setAttribute('alpha', new THREE.BufferAttribute(alphas, 1));
+
       const material = new THREE.LineBasicMaterial({
-        color: colors[index] || 0xFFFFFF,
+        color: color,
         transparent: true,
         opacity: 0.6,
         linewidth: 2
@@ -90,6 +160,99 @@ function createOrbitLines(orbitLines, orbitPaths, bodies, scene, simulationMode 
     }
   });
   return orbitLines;
+}
+
+// Generate a smooth orbit path for a body orbiting a central mass
+// Generates a circle in the plane defined by the body's current position
+function generateOrbitPath(body, centralBody, G, numPoints = 120) {
+  const points = [];
+  
+  // Get current position relative to central body
+  const dx = body.position.x - centralBody.position.x;
+  const dy = body.position.y - centralBody.position.y;
+  const dz = body.position.z - centralBody.position.z;
+  
+  // Calculate orbital radius (3D distance)
+  const r = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  if (r < 0.001) return points;
+  
+  // For bodies in 3D space with inclinations, we need to:
+  // 1. Find the orbital plane normal (approximate from position and velocity)
+  // 2. Generate a circle in that plane
+  
+  // If body has velocity, use it to determine the orbital plane
+  const vx = body.velocity?.x || 0;
+  const vy = body.velocity?.y || 0;
+  const vz = body.velocity?.z || 0;
+  const vMag = Math.sqrt(vx * vx + vy * vy + vz * vz);
+  
+  // Position vector (normalized)
+  const px = dx / r;
+  const py = dy / r;
+  const pz = dz / r;
+  
+  // If we have velocity, compute orbital plane normal via cross product
+  // Normal = position × velocity (angular momentum direction)
+  let nx, ny, nz;
+  if (vMag > 0.001) {
+    const vnx = vx / vMag;
+    const vny = vy / vMag;
+    const vnz = vz / vMag;
+    
+    // Cross product: p × v
+    nx = py * vnz - pz * vny;
+    ny = pz * vnx - px * vnz;
+    nz = px * vny - py * vnx;
+    
+    const nMag = Math.sqrt(nx * nx + ny * ny + nz * nz);
+    if (nMag > 0.001) {
+      nx /= nMag;
+      ny /= nMag;
+      nz /= nMag;
+    } else {
+      // Fallback: use Y-up (XZ plane)
+      nx = 0; ny = 1; nz = 0;
+    }
+  } else {
+    // No velocity, assume XZ plane (Y-up)
+    nx = 0; ny = 1; nz = 0;
+  }
+  
+  // Create two perpendicular vectors in the orbital plane
+  // First basis vector: use cross product with a reference vector
+  let refX = 1, refY = 0, refZ = 0;
+  if (Math.abs(nx) > 0.9) {
+    // Normal is nearly parallel to X, use Z as reference
+    refX = 0; refY = 0; refZ = 1;
+  }
+  
+  // u = normal × reference (first basis vector)
+  let ux = ny * refZ - nz * refY;
+  let uy = nz * refX - nx * refZ;
+  let uz = nx * refY - ny * refX;
+  const uMag = Math.sqrt(ux * ux + uy * uy + uz * uz);
+  ux /= uMag; uy /= uMag; uz /= uMag;
+  
+  // v = normal × u (second basis vector)
+  const vvx = ny * uz - nz * uy;
+  const vvy = nz * ux - nx * uz;
+  const vvz = nx * uy - ny * ux;
+  
+  // Generate circle in the orbital plane
+  for (let i = 0; i <= numPoints; i++) {
+    const angle = (i / numPoints) * 2 * Math.PI;
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+    
+    // Point on circle = center + r * (cos(a) * u + sin(a) * v)
+    points.push({
+      x: centralBody.position.x + r * (cosA * ux + sinA * vvx),
+      y: centralBody.position.y + r * (cosA * uy + sinA * vvy),
+      z: centralBody.position.z + r * (cosA * uz + sinA * vvz)
+    });
+  }
+  
+  return points;
 }
 
 function createTrajectoryLine(trajectory, scene, color = 0xFF6600) {
@@ -207,20 +370,37 @@ function clearSolarFlares(flareGroup) {
 
 const PlanetariumScene = () => {
   const mountRef = useRef(null);
+  const [isClient, setIsClient] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingStatus, setLoadingStatus] = useState('Initializing...');
   const [timeScale, setTimeScale] = useState(1000); // Default speed
   const MIN_TIME_SCALE = 100;
   const MAX_TIME_SCALE = 15000;
+  const TIME_SCALE_STEP = 100;
   const [isPaused, setIsPaused] = useState(false);
   const [selectedBody, setSelectedBody] = useState(null);
   const [isInfoVisible, setIsInfoVisible] = useState(false);
   const [panelWidth, setPanelWidth] = useState(320); // Default width: 320px (w-80)
   const [isResizing, setIsResizing] = useState(false);
   const compositionChartRef = useRef(null);
+  
+  // Hydration guard - only render full UI on client
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
   const [hoveredCompositionId, setHoveredCompositionId] = useState(null);
   const [compositionTab, setCompositionTab] = useState('atmosphere'); // 'atmosphere' or 'core'
   const [isInfoPopupVisible, setIsInfoPopupVisible] = useState(false);
   const [showOrbits, setShowOrbits] = useState(true);
-  const simulationMode = 'solarSystem'; // Always solar system
+  const [currentLevelId, setCurrentLevelId] = useState('SOLAR_SYSTEM');
+  const [debugMode, setDebugMode] = useState(false);
+  const [debugStats, setDebugStats] = useState({ fps: 0, bodies: 0, probes: 0, meshes: 0, memory: 0 });
+  const fpsFramesRef = useRef([]);
+  const lastFpsUpdateRef = useRef(0);
+  
+  const currentLevel = LEVELS[currentLevelId] || LEVELS.SOLAR_SYSTEM;
+  const simulationMode = currentLevel.simulationType || 'solarSystem';
+  
   const [showLabels, setShowLabels] = useState(true);
   const [cameraTargetName, setCameraTargetName] = useState(null);
   const [unlitBodies, setUnlitBodies] = useState(new Set()); // Track which bodies have lighting disabled
@@ -246,53 +426,19 @@ const PlanetariumScene = () => {
   const cameraTargetNameRef = useRef(null);
   const setCameraTargetNameRef = useRef(null);
   const labelsRef = useRef([]);
-  const ORBIT_PATH_RECALC_INTERVAL = 30; // Much more frequent updates
-  const TRAJECTORY_UPDATE_INTERVAL = 5; // Update trajectory lines every N frames
+  const planetRingsRef = useRef([]); // Store rings separately so they orbit independently
+  const orbitCalculationPendingRef = useRef(false); // Prevent overlapping orbit calculations
+  // Orbit interpolation refs for smooth transitions
+  const orbitTargetPathsRef = useRef([]); // Target orbit positions to interpolate towards
+  const orbitInterpolationRef = useRef(1); // 0-1 progress of interpolation (1 = complete)
+  // Orbit update intervals - real-time for chaotic, less frequent for stable
+  const ORBIT_PATH_RECALC_INTERVAL_CHAOTIC = 2; // Every 2 frames (~33ms) for chaotic - near real-time
+  const ORBIT_PATH_RECALC_INTERVAL_STABLE = 60; // Every ~1 second for stable orbits
+  const ORBIT_INTERPOLATION_SPEED_CHAOTIC = 0.5; // Fast blend for chaotic (50% per frame)
+  const ORBIT_INTERPOLATION_SPEED_STABLE = 0.15; // Slower blend for stable orbits
+  const frameTimeRef = useRef(0); // Track actual frame time for accurate performance monitoring
+  const TRAJECTORY_UPDATE_INTERVAL = 10; // Update trajectory lines every N frames
   const trajectoryUpdateCounterRef = useRef(0);
-
-  // Initialize physics worker
-  useEffect(() => {
-    if (typeof Worker !== 'undefined') {
-      try {
-        const worker = new Worker('/physicsWorker.js');
-
-        worker.onmessage = (e) => {
-          const { type, bodies: updatedBodies } = e.data;
-          
-          if (type === 'update') {
-            // Update body positions from worker
-            // CRITICAL: This includes ALL bodies (planets, sun, AND probes)
-            // This is like Outer Wilds - every physics object is constantly being pulled by all others
-            
-            let updatedCount = 0;
-            updatedBodies.forEach((updatedBody) => {
-              // Update regular bodies (planets, sun)
-              const body = bodiesRef.current.find(b => b.id === updatedBody.id);
-              if (body && body.position) {
-                body.position.set(updatedBody.position.x, updatedBody.position.y, updatedBody.position.z);
-                body.velocity.set(updatedBody.velocity.x, updatedBody.velocity.y, updatedBody.velocity.z);
-                updatedCount++;
-              } else {
-                // Update probes - CRITICAL: probes must be updated for them to move
-                const probe = probesRef.current.find(p => p.id === updatedBody.id);
-                if (probe && probe.position) {
-                  probe.position.set(updatedBody.position.x, updatedBody.position.y, updatedBody.position.z);
-                  probe.velocity.set(updatedBody.velocity.x, updatedBody.velocity.y, updatedBody.velocity.z);
-                  updatedCount++;
-                }
-              }
-            });
-            
-          }
-        };
-
-        physicsWorkerRef.current = worker;
-      } catch (error) {
-        console.warn('Web Worker not available, falling back to main thread:', error);
-        physicsWorkerRef.current = null;
-      }
-    }
-  }, []);
 
   // Find Earth
   const getEarth = useCallback(() => {
@@ -346,9 +492,6 @@ const PlanetariumScene = () => {
     sceneRef.current.add(glowMesh);
     probeMeshesRef.current.push(mesh);
     probeMeshesRef.current.push(glowMesh);
-    
-    console.log(`Probe ${probe.id} created at position:`, probe.position);
-    console.log(`Probe ${probe.id} velocity:`, probe.velocity);
 
     // Initialize trajectory tracking for this probe
     probeTrajectoryPointsRef.current.set(probe.id, [{
@@ -371,8 +514,6 @@ const PlanetariumScene = () => {
     // The probe will now be included in ALL force calculations with ALL other bodies
     if (physicsWorkerRef.current) {
       const serialized = probe.toSerializable();
-      console.log('🚀 Launching probe:', serialized);
-      console.log('Probe will be affected by gravity from ALL', bodiesRef.current.length, 'bodies');
       
       physicsWorkerRef.current.postMessage({
         type: 'addBody',
@@ -380,14 +521,6 @@ const PlanetariumScene = () => {
           body: serialized
         }
       });
-      
-      // Verify probe was added
-      setTimeout(() => {
-        console.log('✅ Probe should now be in simulation. Total bodies:', 
-                   bodiesRef.current.length + probesRef.current.length);
-      }, 200);
-    } else {
-      console.warn('⚠️ Physics worker not available - probe will not move');
     }
   }, [getEarth]);
 
@@ -406,6 +539,74 @@ const PlanetariumScene = () => {
   }, []);
 
   useEffect(() => {
+    // Don't initialize until client-side and mount is ready
+    if (!isClient || !mountRef.current) return;
+    
+    // Track if component is mounted for safe state updates
+    let isMounted = true;
+    
+    // Safe state setters
+    const safeSetLoadingStatus = (status) => {
+      if (isMounted) setLoadingStatus(status);
+    };
+    const safeSetIsLoading = (loading) => {
+      if (isMounted) setIsLoading(loading);
+    };
+    
+    // Start loading
+    safeSetIsLoading(true);
+    safeSetLoadingStatus('Creating physics engine...');
+    
+    // Create physics worker
+    let physicsWorker = null;
+    if (typeof Worker !== 'undefined') {
+      try {
+        physicsWorker = new Worker('/physicsWorker.js?v=' + Date.now());
+        
+        // Pre-build lookup map for O(1) body access (rebuilt when bodies change)
+        let bodyMap = new Map();
+        let probeMap = new Map();
+        
+        const rebuildMaps = () => {
+          bodyMap.clear();
+          probeMap.clear();
+          bodiesRef.current.forEach(b => bodyMap.set(b.id, b));
+          probesRef.current.forEach(p => probeMap.set(p.id, p));
+        };
+        
+        physicsWorker.onmessage = (e) => {
+          const { type, bodies: updatedBodies, bodyCount } = e.data;
+          
+          if (type === 'update') {
+            // Rebuild maps if counts don't match (bodies added/removed)
+            if (bodyMap.size !== bodiesRef.current.length || probeMap.size !== probesRef.current.length) {
+              rebuildMaps();
+            }
+            
+            const count = bodyCount || updatedBodies.length;
+            for (let i = 0; i < count; i++) {
+              const updatedBody = updatedBodies[i];
+              const body = bodyMap.get(updatedBody.id);
+              if (body && body.position) {
+                body.position.set(updatedBody.position.x, updatedBody.position.y, updatedBody.position.z);
+                body.velocity.set(updatedBody.velocity.x, updatedBody.velocity.y, updatedBody.velocity.z);
+              } else {
+                const probe = probeMap.get(updatedBody.id);
+                if (probe && probe.position) {
+                  probe.position.set(updatedBody.position.x, updatedBody.position.y, updatedBody.position.z);
+                  probe.velocity.set(updatedBody.velocity.x, updatedBody.velocity.y, updatedBody.velocity.z);
+                }
+              }
+            }
+          }
+        };
+        
+        physicsWorkerRef.current = physicsWorker;
+      } catch (error) {
+        console.warn('Web Worker not available:', error);
+      }
+    }
+    
     const scene = new THREE.Scene();
     sceneRef.current = scene;
 
@@ -415,8 +616,18 @@ const PlanetariumScene = () => {
     let followTargetOnce = false;
     let userZooming = false;
     let zoomTimeout = null;
-    const textureLoader = new THREE.TextureLoader();
+    
+    // Create loading manager to track texture loading progress
+    const loadingManager = new THREE.LoadingManager();
+    loadingManager.onProgress = (url, loaded, total) => {
+      const progress = Math.round((loaded / total) * 100);
+      safeSetLoadingStatus(`Loading textures... ${progress}%`);
+    };
+    
+    const textureLoader = new THREE.TextureLoader(loadingManager);
     const clock = new THREE.Clock();
+    
+    safeSetLoadingStatus('Setting up renderer...');
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
@@ -445,7 +656,7 @@ const PlanetariumScene = () => {
     controls.dampingFactor = 0.08; // Increased for smoother damping
     controls.screenSpacePanning = false;
     controls.minDistance = 10;
-    controls.maxDistance = 5000;
+    controls.maxDistance = 50000; // Increased for larger levels like Outer Wilds
     controls.maxPolarAngle = Math.PI / 2;
     controls.rotateSpeed = 0.8; // Slightly slower rotation for smoother feel
     controls.zoomSpeed = 1.0;
@@ -500,56 +711,83 @@ const PlanetariumScene = () => {
     renderer.domElement.addEventListener('click', onClick);
     scene.add(createStarfield());
 
-    // Initialize bodies with accurate solar system data
-    const sunData = SOLAR_SYSTEM_DATA.Sun;
-    const sun = new Star(
-      'Sun',
-      getVisualRadius('Sun'),
-      sunData.mass,
-      sunData.sidereelTime,
-      1000,
-      sunData.position,
-      sunData.velocity
-    );
+    // Initialize bodies based on current level
+    const level = LEVELS[currentLevelId] || LEVELS.SOLAR_SYSTEM;
+    
+    // Set appropriate time scale for the level
+    if (level.defaultTimeScale) {
+      setTimeScale(level.defaultTimeScale);
+      timeScaleRef.current = level.defaultTimeScale;
+    }
 
-    const planets = [
-      'Mercury',
-      'Venus',
-      'Earth',
-      'Mars',
-      'Jupiter',
-      'Saturn',
-      'Uranus',
-      'Neptune'
-    ].map(planetName => {
-      const data = SOLAR_SYSTEM_DATA[planetName];
-      const orbital = getInitialOrbitalData(planetName);
-      
-      // Calculate appropriate spectating distance based on planet size
-      // Ensure camera stays well outside the planet (at least 3x radius)
-      const planetRadius = getVisualRadius(planetName);
-      let spectatingDistance;
-      if (planetName === 'Jupiter' || planetName === 'Saturn') {
-        spectatingDistance = 100;
-      } else if (planetName === 'Uranus' || planetName === 'Neptune') {
-        // Uranus and Neptune need larger distances to prevent camera from going inside
-        spectatingDistance = Math.max(50, planetRadius * 3);
-      } else {
-        spectatingDistance = Math.max(5, planetRadius * 3);
-      }
-      
-      return new Planet(
-        planetName,
-        planetRadius,
-        data.mass,
-        data.sidereelTime,
-        spectatingDistance,
-        orbital.position,
-        orbital.velocity
+    let initialBodies = [];
+
+    if (level.id === 'SOLAR_SYSTEM') {
+      const sunData = SOLAR_SYSTEM_DATA.Sun;
+      const sun = new Star(
+        'Sun',
+        getVisualRadius('Sun'),
+        sunData.mass,
+        sunData.sidereelTime,
+        1000,
+        sunData.position,
+        sunData.velocity
       );
-    });
 
-    const initialBodies = [sun, ...planets];
+      const planets = [
+        'Mercury',
+        'Venus',
+        'Earth',
+        'Mars',
+        'Jupiter',
+        'Saturn',
+        'Uranus',
+        'Neptune'
+      ].map(planetName => {
+        const data = SOLAR_SYSTEM_DATA[planetName];
+        const orbital = getInitialOrbitalData(planetName);
+        
+        const planetRadius = getVisualRadius(planetName);
+        let spectatingDistance;
+        if (planetName === 'Jupiter' || planetName === 'Saturn') {
+          spectatingDistance = 100;
+        } else if (planetName === 'Uranus' || planetName === 'Neptune') {
+          spectatingDistance = Math.max(50, planetRadius * 3);
+        } else {
+          spectatingDistance = Math.max(5, planetRadius * 3);
+        }
+        
+        return new Planet(
+          planetName,
+          planetRadius,
+          data.mass,
+          data.sidereelTime,
+          spectatingDistance,
+          orbital.position,
+          orbital.velocity
+        );
+      });
+
+      initialBodies = [sun, ...planets];
+    } else {
+      // Generic level loading (Three Body, etc.)
+      initialBodies = Object.entries(level.bodies).map(([name, data]) => {
+        return new Star(
+          name,
+          data.radius,
+          data.mass,
+          0,
+          20,
+          data.position,
+          data.velocity
+        );
+      });
+
+      if (level.cameraPosition) {
+        camera.position.set(level.cameraPosition.x, level.cameraPosition.y, level.cameraPosition.z);
+        controls.target.set(0, 0, 0);
+      }
+    }
 
     // Add IDs to bodies
     initialBodies.forEach((body, index) => {
@@ -558,12 +796,16 @@ const PlanetariumScene = () => {
 
     bodiesRef.current = initialBodies;
 
-    // Ambient light - minimal to prevent complete darkness
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.10);
+    // Ambient light - provides base illumination so distant planets aren't pitch black
+    // Brighter for three-body level since there's no dominant light source
+    const ambientIntensity = level.id === 'SOLAR_SYSTEM' ? 0.25 : 1.0;
+    const ambientLight = new THREE.AmbientLight(0xffffff, ambientIntensity);
     scene.add(ambientLight);
 
     // Create PointLight at the sun - emits light in all directions
-    const sunLight = new THREE.PointLight(0xfff4e6, 30000.0, 0); // distance 0 = infinite range
+    // decay = 0 disables realistic inverse-square falloff so distant planets are visible
+    // In reality, outer planets receive much less light, but for visualization we need them visible
+    const sunLight = new THREE.PointLight(0xfff4e6, 3.0, 0, 0); // intensity 3, distance 0 (infinite), decay 0
     sunLight.castShadow = true;
     
     // Shadow settings
@@ -577,15 +819,40 @@ const PlanetariumScene = () => {
     sunLight.position.set(0, 0, 0);
     scene.add(sunLight);
 
+    // Add hemisphere light for subtle fill lighting (simulates light bouncing off space dust)
+    // This helps distant planets have some definition on their dark side
+    if (level.id === 'SOLAR_SYSTEM') {
+      const hemiLight = new THREE.HemisphereLight(0xffeedd, 0x080820, 0.15);
+      scene.add(hemiLight);
+    }
+
     // Create solar flares group
     const solarFlaresGroup = new THREE.Group();
     scene.add(solarFlaresGroup);
     let solarFlareTime = 0;
     let solarFlareActive = false;
     let lastSolarFlareCheck = 0;
+    
+    safeSetLoadingStatus('Loading celestial bodies...');
+
+    // LOD distance thresholds based on body radius
+    const getLODDistances = (radius) => ({
+      high: radius * 10,    // Full detail when close
+      medium: radius * 50,  // Medium detail
+      low: radius * 200     // Low detail when far
+    });
 
     const bodyMeshes = initialBodies.map((body) => {
-      const geometry = new THREE.SphereGeometry(body.radius, 64, 32);
+      // Create LOD object for this body
+      const lod = new THREE.LOD();
+      
+      // High detail geometry (64x32 segments)
+      const highGeometry = new THREE.SphereGeometry(body.radius, 64, 32);
+      // Medium detail geometry (32x16 segments)
+      const medGeometry = new THREE.SphereGeometry(body.radius, 32, 16);
+      // Low detail geometry (16x8 segments)
+      const lowGeometry = new THREE.SphereGeometry(body.radius, 16, 8);
+      
       let material;
       
       if (body.name === 'Sun' && simulationMode === 'solarSystem') {
@@ -715,6 +982,120 @@ const PlanetariumScene = () => {
           side: THREE.DoubleSide
         });
         
+      } else if (currentLevelId !== 'SOLAR_SYSTEM') {
+        // Generic bodies for other levels
+        const level = LEVELS[currentLevelId];
+        const bodyData = level.bodies[body.name];
+        const color = bodyData?.color || 0xFFFFFF;
+        
+        material = new THREE.MeshStandardMaterial({
+          color: color,
+          emissive: color,
+          emissiveIntensity: 0.5,
+          roughness: 0.5,
+          metalness: 0.5
+        });
+      } else if (body.name === 'Earth' && simulationMode === 'solarSystem') {
+        // Earth with day texture, night lights, clouds, and specular highlights
+        const earthDayTexture = textureLoader.load('/planetarium/textures/Earth.jpg');
+        const earthNightTexture = textureLoader.load('/planetarium/textures/2k_earth_nightmap.jpg');
+        const earthCloudsTexture = textureLoader.load('/planetarium/textures/2k_earth_clouds.jpg');
+        
+        // Set cloud texture to repeat so it loops seamlessly
+        earthCloudsTexture.wrapS = THREE.RepeatWrapping;
+        earthCloudsTexture.wrapT = THREE.RepeatWrapping;
+        
+        // Earth shader for day/night transition with city lights
+        const earthVertexShader = `
+          varying vec2 vUv;
+          varying vec3 vNormal;
+          varying vec3 vWorldNormal;
+          varying vec3 vWorldPosition;
+          varying vec3 vViewPosition;
+          
+          void main() {
+            vUv = uv;
+            vNormal = normalize(normalMatrix * normal);
+            vWorldNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+            vec4 worldPos = modelMatrix * vec4(position, 1.0);
+            vWorldPosition = worldPos.xyz;
+            vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `;
+        
+        const earthFragmentShader = `
+          uniform sampler2D dayTexture;
+          uniform sampler2D nightTexture;
+          uniform sampler2D cloudsTexture;
+          uniform vec3 sunPosition;
+          uniform float time;
+          
+          varying vec2 vUv;
+          varying vec3 vNormal;
+          varying vec3 vWorldNormal;
+          varying vec3 vWorldPosition;
+          varying vec3 vViewPosition;
+          
+          void main() {
+            // Calculate sun direction in world space
+            vec3 sunDir = normalize(sunPosition - vWorldPosition);
+            
+            // Day/night factor based on sun angle (use world normal for correct sun-relative lighting)
+            float sunDot = dot(vWorldNormal, sunDir);
+            float dayFactor = smoothstep(-0.1, 0.3, sunDot);
+            
+            // Sample textures
+            vec3 dayColor = texture2D(dayTexture, vUv).rgb;
+            vec3 nightColor = texture2D(nightTexture, vUv).rgb;
+            float clouds = texture2D(cloudsTexture, vUv + vec2(time * 0.001, 0.0)).r;
+            
+            // City lights glow brighter on the night side
+            vec3 nightLights = nightColor * 2.5;
+            
+            // Blend day and night based on sun position
+            vec3 surfaceColor = mix(nightLights, dayColor, dayFactor);
+            
+            // Add clouds (more visible on day side, subtle glow on night side)
+            float cloudDayBrightness = clouds * dayFactor * 0.8;
+            float cloudNightBrightness = clouds * (1.0 - dayFactor) * 0.1;
+            surfaceColor += vec3(cloudDayBrightness + cloudNightBrightness);
+            
+            // Specular highlight for oceans (approximate based on blue channel being high)
+            float specular = 0.0;
+            if (dayFactor > 0.1) {
+              vec3 viewDirWorld = normalize(cameraPosition - vWorldPosition);
+              vec3 reflectDir = reflect(-sunDir, vWorldNormal);
+              float oceanMask = smoothstep(0.3, 0.6, dayColor.b - dayColor.r * 0.5);
+              specular = pow(max(dot(viewDirWorld, reflectDir), 0.0), 32.0) * oceanMask * 0.5;
+            }
+            
+            // Atmospheric rim lighting (this one can stay view-relative for camera edge effect)
+            vec3 viewDir = normalize(-vViewPosition);
+            float rim = 1.0 - max(dot(viewDir, vNormal), 0.0);
+            rim = pow(rim, 3.0);
+            vec3 rimColor = vec3(0.4, 0.6, 1.0) * rim * 0.3 * max(dayFactor, 0.2);
+            
+            vec3 finalColor = surfaceColor + vec3(specular) + rimColor;
+            
+            gl_FragColor = vec4(finalColor, 1.0);
+          }
+        `;
+        
+        material = new THREE.ShaderMaterial({
+          uniforms: {
+            dayTexture: { value: earthDayTexture },
+            nightTexture: { value: earthNightTexture },
+            cloudsTexture: { value: earthCloudsTexture },
+            sunPosition: { value: new THREE.Vector3(0, 0, 0) },
+            time: { value: 0 }
+          },
+          vertexShader: earthVertexShader,
+          fragmentShader: earthFragmentShader
+        });
+        
+        // Store shader material reference for animation
+        lod.userData.earthShaderMaterial = material;
       } else {
         // Regular planets with textures
         const texture = textureLoader.load(`/planetarium/textures/${body.name}.jpg`);
@@ -724,23 +1105,253 @@ const PlanetariumScene = () => {
         });
       }
       
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.copy(body.position);
-      mesh.userData.bodyName = body.name;
+      // Create meshes for each LOD level
+      const highMesh = new THREE.Mesh(highGeometry, material);
+      const medMesh = new THREE.Mesh(medGeometry, material);
+      const lowMesh = new THREE.Mesh(lowGeometry, material);
+      
+      // Get LOD distances based on body size
+      const lodDist = getLODDistances(body.radius);
+      
+      // Add LOD levels (closer = higher detail)
+      lod.addLevel(highMesh, 0);           // High detail when close
+      lod.addLevel(medMesh, lodDist.high);  // Medium detail
+      lod.addLevel(lowMesh, lodDist.medium); // Low detail when far
+      
+      lod.position.copy(body.position);
+      lod.userData.bodyName = body.name;
       
       // Enable shadows for planets (not sun, as it's the light source)
       if (body.name !== 'Sun') {
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
+        highMesh.castShadow = true;
+        highMesh.receiveShadow = true;
+        medMesh.castShadow = true;
+        medMesh.receiveShadow = true;
+        lowMesh.castShadow = true;
+        lowMesh.receiveShadow = true;
       }
       
       // Store shader material reference for sun animation
       if (body.name === 'Sun' && material.uniforms) {
-        mesh.userData.shaderMaterial = material;
+        lod.userData.shaderMaterial = material;
       }
       
-      scene.add(mesh);
-      return mesh;
+      // Add atmosphere glow for Earth - thin rim glow with depth
+      if (body.name === 'Earth' && simulationMode === 'solarSystem') {
+        const atmosphereVertexShader = `
+          varying vec3 vNormal;
+          varying vec3 vPosition;
+          varying vec3 vWorldPosition;
+          varying vec3 vWorldNormal;
+          
+          void main() {
+            vNormal = normalize(normalMatrix * normal);
+            vWorldNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+            vPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+            vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+            
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `;
+        
+        const atmosphereFragmentShader = `
+          varying vec3 vNormal;
+          varying vec3 vPosition;
+          varying vec3 vWorldPosition;
+          varying vec3 vWorldNormal;
+          
+          uniform vec3 sunPosition;
+          uniform vec3 planetCenter;
+          uniform float atmosphereRadius;
+          uniform float planetRadius;
+          
+          void main() {
+            vec3 viewDir = normalize(-vPosition);
+            vec3 normal = normalize(vWorldNormal);
+            vec3 viewNormal = normalize(vNormal);
+            
+            // Calculate sun direction
+            vec3 sunDir = normalize(sunPosition - vWorldPosition);
+            
+            // Rim-based fresnel - atmosphere visible mainly at edges
+            float fresnel = 1.0 - abs(dot(viewDir, viewNormal));
+            
+            // Sharp rim falloff - atmosphere concentrated at the edge
+            float rim = pow(fresnel, 2.5);
+            float innerRim = pow(fresnel, 4.0);
+            
+            // Day/night based on sun angle
+            float sunAngle = dot(normal, sunDir);
+            float dayFactor = smoothstep(-0.2, 0.3, sunAngle);
+            
+            // Rayleigh scattering colors - blue scattered most
+            vec3 dayAtmosphere = vec3(0.4, 0.7, 1.0);
+            vec3 sunsetColor = vec3(1.0, 0.4, 0.2);
+            vec3 nightGlow = vec3(0.05, 0.1, 0.2);
+            
+            // Sunset at terminator
+            float sunsetFactor = smoothstep(-0.1, 0.05, sunAngle) * (1.0 - smoothstep(0.05, 0.25, sunAngle));
+            
+            // Build atmosphere color
+            vec3 atmosphereColor = mix(nightGlow, dayAtmosphere, dayFactor);
+            atmosphereColor = mix(atmosphereColor, sunsetColor, sunsetFactor * 0.7);
+            
+            // Forward scattering - brighter when looking towards sun
+            float scatter = pow(max(0.0, dot(viewDir, sunDir)), 3.0);
+            atmosphereColor += vec3(0.3, 0.4, 0.5) * scatter * dayFactor * rim * 0.5;
+            
+            // Alpha - mainly visible at rim, fading towards center
+            // This creates the thin atmospheric shell look
+            float alpha = rim * 0.6 + innerRim * 0.2;
+            alpha *= (0.3 + dayFactor * 0.7); // Dimmer on night side
+            alpha = clamp(alpha, 0.0, 0.7);
+            
+            gl_FragColor = vec4(atmosphereColor, alpha);
+          }
+        `;
+        
+        const atmosphereMaterial = new THREE.ShaderMaterial({
+          uniforms: {
+            sunPosition: { value: new THREE.Vector3(0, 0, 0) },
+            planetCenter: { value: new THREE.Vector3(0, 0, 0) },
+            atmosphereRadius: { value: body.radius * 1.08 },
+            planetRadius: { value: body.radius }
+          },
+          vertexShader: atmosphereVertexShader,
+          fragmentShader: atmosphereFragmentShader,
+          side: THREE.BackSide,
+          transparent: true,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false
+        });
+        
+        // Thin atmosphere shell - just slightly larger than planet
+        const atmosphereGeometry = new THREE.SphereGeometry(body.radius * 1.08, 64, 32);
+        const atmosphereMesh = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+        lod.add(atmosphereMesh);
+        lod.userData.atmosphere = atmosphereMesh;
+        lod.userData.atmosphereMaterial = atmosphereMaterial;
+      }
+      
+      // Add rings for gas giants
+      const gasGiants = ['Saturn', 'Jupiter', 'Uranus', 'Neptune'];
+      if (gasGiants.includes(body.name) && simulationMode === 'solarSystem') {
+        const ringConfigs = {
+          Saturn: { innerRadius: 1.2, outerRadius: 2.3, color: 0xc9b896, opacity: 0.8, tilt: 26.7 },
+          Jupiter: { innerRadius: 1.1, outerRadius: 1.3, color: 0x8b7355, opacity: 0.3, tilt: 3.1 },
+          Uranus: { innerRadius: 1.3, outerRadius: 1.6, color: 0x87ceeb, opacity: 0.4, tilt: 97.8 },
+          Neptune: { innerRadius: 1.2, outerRadius: 1.5, color: 0x4169e1, opacity: 0.3, tilt: 28.3 }
+        };
+        
+        const config = ringConfigs[body.name];
+        
+        // Create ring with procedural texture
+        const ringGeometry = new THREE.RingGeometry(
+          body.radius * config.innerRadius,
+          body.radius * config.outerRadius,
+          128
+        );
+        
+        // Rotate UVs for proper texture mapping on a ring
+        const pos = ringGeometry.attributes.position;
+        const uv = ringGeometry.attributes.uv;
+        for (let i = 0; i < pos.count; i++) {
+          const x = pos.getX(i);
+          const y = pos.getY(i);
+          const dist = Math.sqrt(x * x + y * y);
+          const normalized = (dist - body.radius * config.innerRadius) / 
+                            (body.radius * (config.outerRadius - config.innerRadius));
+          uv.setXY(i, normalized, 0.5);
+        }
+        
+        // Ring shader for better visuals
+        const ringVertexShader = `
+          varying vec2 vUv;
+          varying vec3 vPosition;
+          void main() {
+            vUv = uv;
+            vPosition = position;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `;
+        
+        const ringFragmentShader = `
+          uniform vec3 ringColor;
+          uniform float opacity;
+          uniform float innerRadius;
+          uniform float outerRadius;
+          varying vec2 vUv;
+          varying vec3 vPosition;
+          
+          // Simple noise for ring detail
+          float hash(float n) { return fract(sin(n) * 43758.5453123); }
+          
+          void main() {
+            float dist = length(vPosition.xy);
+            float t = (dist - innerRadius) / (outerRadius - innerRadius);
+            
+            // Create ring bands
+            float bands = sin(t * 80.0) * 0.3 + 0.7;
+            bands *= sin(t * 200.0) * 0.2 + 0.8;
+            
+            // Add some noise variation
+            float noise = hash(floor(t * 500.0)) * 0.15 + 0.85;
+            
+            // Fade at edges
+            float edgeFade = smoothstep(0.0, 0.1, t) * smoothstep(1.0, 0.85, t);
+            
+            // Gap in Saturn's rings (Cassini Division)
+            float cassiniGap = 1.0;
+            if (t > 0.55 && t < 0.62) {
+              cassiniGap = 0.2;
+            }
+            
+            vec3 color = ringColor * bands * noise;
+            float alpha = opacity * edgeFade * cassiniGap;
+            
+            gl_FragColor = vec4(color, alpha);
+          }
+        `;
+        
+        const ringMaterial = new THREE.ShaderMaterial({
+          uniforms: {
+            ringColor: { value: new THREE.Color(config.color) },
+            opacity: { value: config.opacity },
+            innerRadius: { value: body.radius * config.innerRadius },
+            outerRadius: { value: body.radius * config.outerRadius }
+          },
+          vertexShader: ringVertexShader,
+          fragmentShader: ringFragmentShader,
+          side: THREE.DoubleSide,
+          transparent: true,
+          depthWrite: false
+        });
+        
+        const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
+        
+        // Store ring configuration for independent orbital animation
+        // Rings orbit around the planet, not fixed to its surface
+        ringMesh.userData.parentBodyName = body.name;
+        ringMesh.userData.tiltDegrees = config.tilt;
+        ringMesh.userData.orbitSpeed = 0.02; // Ring orbital speed (radians per second at 1x time scale)
+        ringMesh.userData.currentOrbitAngle = 0;
+        
+        // Initial tilt setup - rings tilt with the planet but orbit independently
+        ringMesh.rotation.x = Math.PI / 2; // Lay flat first
+        
+        // Position at planet location initially
+        ringMesh.position.copy(body.position);
+        
+        ringMesh.receiveShadow = true;
+        scene.add(ringMesh); // Add to scene directly, not as child of planet
+        
+        // Store ring reference for animation
+        planetRingsRef.current.push(ringMesh);
+        lod.userData.ringRef = ringMesh; // Keep reference for cleanup
+      }
+      
+      scene.add(lod);
+      return lod;
     });
 
     // Find sun mesh and position light
@@ -755,10 +1366,12 @@ const PlanetariumScene = () => {
     if (showLabels) {
       // Labels will be added via the PlanetLabels component
     }
+    
+    safeSetLoadingStatus('Starting physics simulation...');
 
     // Initialize physics worker after a short delay to ensure it's ready
     setTimeout(() => {
-      if (physicsWorkerRef.current) {
+      if (physicsWorker) {
         const allBodiesForWorker = initialBodies.map(body => ({
           id: body.id,
           mass: body.mass,
@@ -766,59 +1379,56 @@ const PlanetariumScene = () => {
           velocity: { x: body.velocity.x, y: body.velocity.y, z: body.velocity.z }
         }));
         
-        console.log('🚀 Initializing physics worker with', allBodiesForWorker.length, 'bodies');
-        console.log('Bodies:', allBodiesForWorker.map(b => ({ 
-          id: b.id, 
-          mass: b.mass,
-          pos: b.position,
-          vel: b.velocity
-        })));
+        const initData = {
+          bodies: allBodiesForWorker,
+          timeScale: level.defaultTimeScale || timeScale,
+          isPaused: isPaused,
+          gConstant: level.gConstant
+        };
         
-        // CRITICAL: Make sure worker is ready before sending
-        if (physicsWorkerRef.current) {
-          physicsWorkerRef.current.postMessage({
-            type: 'init',
-            data: {
-              bodies: allBodiesForWorker,
-              timeScale: timeScale,
-              isPaused: isPaused
-            }
-          });
-          
-          console.log('✅ Init message sent to physics worker');
-        } else {
-          console.error('❌ Physics worker not available!');
-        }
+        physicsWorker.postMessage({
+          type: 'init',
+          data: initData
+        });
       }
+      
+      // Loading complete - show the simulation
+      safeSetLoadingStatus('Ready!');
+      setTimeout(() => safeSetIsLoading(false), 200);
     }, 100);
 
-    // Calculate orbit paths for all planets using RK4 simulation
-    // This simulates forward in time to show where planets will travel
+    // Calculate orbit paths - simple circular orbits for stable systems,
+    // N-body trails for chaotic systems
     const calculateOrbitPaths = () => {
       if (bodiesRef.current.length === 0) return [];
       
       const orbitPaths = [];
+      const currentLevel = LEVELS[currentLevelId] || LEVELS.SOLAR_SYSTEM;
+      const G = currentLevel.gConstant;
+      
+      // Find the central body (Sun or largest mass)
+      const sun = bodiesRef.current.find(b => b.name === 'Sun');
+      const centralBody = sun || bodiesRef.current.reduce((a, b) => a.mass > b.mass ? a : b);
+      
+      // For Solar System and Outer Wilds, generate simple circular orbits
+      if (currentLevel.simulationType === 'solarSystem' || currentLevel.simulationType === 'outerWilds') {
+        bodiesRef.current.forEach((body) => {
+          if (body === centralBody) return; // Skip the central body
+          
+          const points = generateOrbitPath(body, centralBody, G, 120);
+          if (points.length > 0) {
+            orbitPaths.push(points);
+          }
+        });
+        
+        return orbitPaths;
+      }
+      
+      // For chaotic systems (Three Body), use N-body simulation trails
       const timeScale = timeScaleRef.current;
+      const visualizationDt = timeScale * 0.016 * 10; // Larger dt for speed - predict further ahead
       
-      // Get planet data for adaptive step calculation
-      // Outer planets have longer orbital periods, so they need more steps
-      const planetData = {
-        'Mercury': { distance: 57.9, baseSteps: 400 },
-        'Venus': { distance: 108.2, baseSteps: 500 },
-        'Earth': { distance: 149.6, baseSteps: 600 },
-        'Mars': { distance: 227.9, baseSteps: 800 },
-        'Jupiter': { distance: 778.5, baseSteps: 1200 },
-        'Saturn': { distance: 1432.0, baseSteps: 1800 },
-        'Uranus': { distance: 2867.0, baseSteps: 2400 },
-        'Neptune': { distance: 4515.0, baseSteps: 3000 }
-      };
-      
-      // Use larger time step for orbit visualization (2.5x) to show more of the orbit
-      // This is safe because it's only for visualization, not actual physics
-      // Outer planets move slowly, so a larger dt helps show more of their orbit
-      const visualizationDt = timeScale * 0.016 * 2.5;
-      
-      // Create deep copies of all bodies for simulation starting from CURRENT positions
+      // Create deep copies of all bodies for simulation
       const simBodies = bodiesRef.current.map(body => ({
         id: body.id,
         name: body.name,
@@ -827,64 +1437,60 @@ const PlanetariumScene = () => {
         velocity: { x: body.velocity.x, y: body.velocity.y, z: body.velocity.z }
       }));
       
-      // Initialize orbit paths array - show planets only (excluding sun)
-      // Calculate adaptive steps per planet based on distance/orbital period
+      // Initialize orbit paths for non-sun bodies
       const bodyIndices = [];
-      const planetSteps = [];
       simBodies.forEach((body, index) => {
         if (body.name !== 'Sun') {
           orbitPaths.push([]);
           bodyIndices.push(index);
-          
-          // Calculate adaptive steps based on planet distance
-          // Outer planets get more steps to show more of their orbit
-          const data = planetData[body.name];
-          if (data) {
-            // Base steps scaled by distance ratio (relative to Earth)
-            // When timeScale is low (slow simulation), show more of the orbit
-            // This helps visualize orbits at slow time steps
-            const distanceRatio = data.distance / 149.6; // Earth = 1.0
-            const slowTimeFactor = Math.max(1, 10000 / Math.max(timeScale, 1000)); // More steps when slow
-            const steps = Math.floor(data.baseSteps * distanceRatio * slowTimeFactor);
-            planetSteps.push(Math.min(steps, 4000)); // Cap at 4000 for performance
-          } else {
-            planetSteps.push(800); // Default
-          }
         }
       });
       
-      // Find maximum steps needed
-      const maxSteps = planetSteps.length > 0 ? Math.max(...planetSteps) : 800;
+      // Fewer steps but larger dt = same prediction distance, much faster
+      const maxSteps = 100;
       
-      // Run simulation forward to collect orbit points (only future positions)
+      // Use simple Euler integration instead of RK4 for orbit preview (much faster)
       for (let step = 0; step < maxSteps; step++) {
-        // Store current positions for all planets
-        // Each planet will have different numbers of points based on their step count
         bodyIndices.forEach((bodyIndex, pathIndex) => {
           const body = simBodies[bodyIndex];
-          const stepsForPlanet = planetSteps[pathIndex];
-          
-          // Only add point if we haven't reached this planet's step limit
-          if (step < stepsForPlanet) {
-            orbitPaths[pathIndex].push({
-              x: body.position.x,
-              y: body.position.y,
-              z: body.position.z
-            });
-          }
+          orbitPaths[pathIndex].push({
+            x: body.position.x,
+            y: body.position.y,
+            z: body.position.z
+          });
         });
         
-        // Calculate all updates first (simultaneous update for N-body)
-        const updates = [];
+        // Simple Euler integration (faster than RK4, good enough for preview)
+        // Calculate accelerations
+        const accelerations = simBodies.map(() => ({ x: 0, y: 0, z: 0 }));
         for (let i = 0; i < simBodies.length; i++) {
-          const result = rk4Step(simBodies[i], simBodies, visualizationDt);
-          updates.push(result);
+          for (let j = i + 1; j < simBodies.length; j++) {
+            const dx = simBodies[j].position.x - simBodies[i].position.x;
+            const dy = simBodies[j].position.y - simBodies[i].position.y;
+            const dz = simBodies[j].position.z - simBodies[i].position.z;
+            const distSq = dx * dx + dy * dy + dz * dz + 0.01; // Softening
+            const dist = Math.sqrt(distSq);
+            const force = G / distSq;
+            const fx = force * dx / dist;
+            const fy = force * dy / dist;
+            const fz = force * dz / dist;
+            accelerations[i].x += fx * simBodies[j].mass;
+            accelerations[i].y += fy * simBodies[j].mass;
+            accelerations[i].z += fz * simBodies[j].mass;
+            accelerations[j].x -= fx * simBodies[i].mass;
+            accelerations[j].y -= fy * simBodies[i].mass;
+            accelerations[j].z -= fz * simBodies[i].mass;
+          }
         }
         
-        // Apply all updates simultaneously
+        // Update velocities and positions
         for (let i = 0; i < simBodies.length; i++) {
-          simBodies[i].velocity = updates[i].velocity;
-          simBodies[i].position = updates[i].position;
+          simBodies[i].velocity.x += accelerations[i].x * visualizationDt;
+          simBodies[i].velocity.y += accelerations[i].y * visualizationDt;
+          simBodies[i].velocity.z += accelerations[i].z * visualizationDt;
+          simBodies[i].position.x += simBodies[i].velocity.x * visualizationDt;
+          simBodies[i].position.y += simBodies[i].velocity.y * visualizationDt;
+          simBodies[i].position.z += simBodies[i].velocity.z * visualizationDt;
         }
       }
       
@@ -957,38 +1563,91 @@ const PlanetariumScene = () => {
                 }
               }
             }
+            
+            // Update Earth atmosphere shader with actual sun position
+            if (body.name === 'Earth' && mesh.userData.atmosphereMaterial) {
+              // Find sun position
+              const sunBody = bodiesRef.current.find(b => b.name === 'Sun');
+              if (sunBody) {
+                mesh.userData.atmosphereMaterial.uniforms.sunPosition.value.set(
+                  sunBody.position.x,
+                  sunBody.position.y,
+                  sunBody.position.z
+                );
+                mesh.userData.atmosphereMaterial.uniforms.planetCenter.value.set(
+                  body.position.x,
+                  body.position.y,
+                  body.position.z
+                );
+              }
+            }
+            
+            // Update Earth surface shader with sun position and time for clouds
+            if (body.name === 'Earth' && mesh.userData.earthShaderMaterial) {
+              const sunBody = bodiesRef.current.find(b => b.name === 'Sun');
+              const time = clock.getElapsedTime();
+              if (sunBody) {
+                mesh.userData.earthShaderMaterial.uniforms.sunPosition.value.set(
+                  sunBody.position.x,
+                  sunBody.position.y,
+                  sunBody.position.z
+                );
+              }
+              mesh.userData.earthShaderMaterial.uniforms.time.value = time;
+            }
           }
         }
       });
 
+      // Update planetary rings - they orbit around their parent planet independently
+      if (!isPausedRef.current) {
+        const currentTimeScale = timeScaleRef.current;
+        planetRingsRef.current.forEach(ring => {
+          if (!ring || !ring.userData.parentBodyName) return;
+          
+          // Find the parent planet mesh
+          const parentIndex = bodiesRef.current.findIndex(b => b.name === ring.userData.parentBodyName);
+          if (parentIndex === -1) return;
+          
+          const parentBody = bodiesRef.current[parentIndex];
+          
+          // Update ring position to follow planet
+          ring.position.set(parentBody.position.x, parentBody.position.y, parentBody.position.z);
+          
+          // Rotate ring around the planet (orbital motion)
+          // Use time scale to speed up with simulation
+          ring.userData.currentOrbitAngle += ring.userData.orbitSpeed * frameDelta * (currentTimeScale / 500);
+          
+          // Apply rotation: first tilt to match axial inclination, then orbital rotation
+          const tiltRad = THREE.MathUtils.degToRad(ring.userData.tiltDegrees);
+          ring.rotation.set(Math.PI / 2, 0, 0); // Reset to flat
+          ring.rotateOnWorldAxis(new THREE.Vector3(1, 0, 0), tiltRad); // Apply axial tilt
+          ring.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), ring.userData.currentOrbitAngle); // Orbital rotation
+        });
+      }
+
       // Update probe meshes - ensure they stay in sync with physics simulation
-      // Also check for nearby planets to show gravity effects
-      // Also update trajectory points and lines
+      // Build a map once per frame for O(1) lookup
+      const probeMeshMap = new Map();
+      probeMeshesRef.current.forEach(m => {
+        if (m && m.userData.probeId) {
+          if (!probeMeshMap.has(m.userData.probeId)) {
+            probeMeshMap.set(m.userData.probeId, []);
+          }
+          probeMeshMap.get(m.userData.probeId).push(m);
+        }
+      });
+      
       probesRef.current.forEach((probe) => {
         if (!probe || !probe.position) return;
-        const probeMeshes = probeMeshesRef.current.filter(m => m && m.userData.probeId === probe.id);
+        const probeMeshes = probeMeshMap.get(probe.id) || [];
         probeMeshes.forEach((mesh) => {
           if (mesh) {
             mesh.position.set(probe.position.x, probe.position.y, probe.position.z);
             
-            // Update main probe mesh material (not glow mesh)
+            // Update main probe mesh material (not glow mesh) - skip gravity glow check for performance
             if (!mesh.userData.isGlow && mesh.material) {
-              // Visual feedback: Make probe glow brighter when near a planet (gravity assist zone)
-              let nearestPlanetDistance = Infinity;
-              bodiesRef.current.forEach((body) => {
-                if (body.name === 'Sun') return; // Skip sun for this check
-                const distance = probe.getDistanceTo(body);
-                if (distance < nearestPlanetDistance) {
-                  nearestPlanetDistance = distance;
-                }
-              });
-              
-              // If probe is within 50 units of a planet, increase glow to show gravity interaction
-              if (nearestPlanetDistance < 50) {
-                mesh.material.emissiveIntensity = Math.min(1.0, 0.8 + (50 - nearestPlanetDistance) / 50 * 0.2);
-              } else {
-                mesh.material.emissiveIntensity = 0.8;
-              }
+              mesh.material.emissiveIntensity = 0.8;
             }
           }
         });
@@ -1005,22 +1664,38 @@ const PlanetariumScene = () => {
               z: probe.position.z
             });
 
-            // Limit trajectory length to prevent memory issues (keep last 5000 points)
-            if (trajectoryPoints.length > 5000) {
+            // Limit trajectory length to prevent memory issues (keep last 2000 points - reduced from 5000)
+            if (trajectoryPoints.length > 2000) {
               trajectoryPoints.shift();
             }
 
-            // Update trajectory line
+            // Update trajectory line - only every 3rd update to reduce geometry rebuilds
             const trajectoryLine = probeTrajectoryLinesRef.current.get(probe.id);
-            if (trajectoryLine && trajectoryPoints.length >= 2) {
-              const points = [];
-              trajectoryPoints.forEach(pos => {
-                points.push(pos.x, pos.y, pos.z);
-              });
-
-              trajectoryLine.geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
-              trajectoryLine.geometry.attributes.position.needsUpdate = true;
-              trajectoryLine.computeLineDistances(); // Required for dashed lines - must be called on the Line object
+            if (trajectoryLine && trajectoryPoints.length >= 2 && trajectoryPoints.length % 3 === 0) {
+              const len = trajectoryPoints.length * 3;
+              const positions = trajectoryLine.geometry.attributes.position;
+              
+              // Reuse buffer if same size, otherwise create new
+              if (!positions || positions.count !== trajectoryPoints.length) {
+                const points = new Float32Array(len);
+                for (let i = 0; i < trajectoryPoints.length; i++) {
+                  const pos = trajectoryPoints[i];
+                  points[i * 3] = pos.x;
+                  points[i * 3 + 1] = pos.y;
+                  points[i * 3 + 2] = pos.z;
+                }
+                trajectoryLine.geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+              } else {
+                const arr = positions.array;
+                for (let i = 0; i < trajectoryPoints.length; i++) {
+                  const pos = trajectoryPoints[i];
+                  arr[i * 3] = pos.x;
+                  arr[i * 3 + 1] = pos.y;
+                  arr[i * 3 + 2] = pos.z;
+                }
+                positions.needsUpdate = true;
+              }
+              trajectoryLine.computeLineDistances();
             }
           }
         }
@@ -1031,13 +1706,60 @@ const PlanetariumScene = () => {
         trajectoryUpdateCounterRef.current = 0;
       }
       
-      // Update orbit paths more frequently (only if orbits are visible and simulation is running)
+      // Update orbit paths (only if orbits are visible and simulation is running)
+      // Use deferred calculation with smooth interpolation
       if (showOrbitsRef.current && !isPausedRef.current) {
-        orbitPathRecalculateCounterRef.current++;
-        if (orbitPathRecalculateCounterRef.current >= ORBIT_PATH_RECALC_INTERVAL) {
-          orbitPathRecalculateCounterRef.current = 0;
-          const newOrbitPaths = calculateOrbitPaths();
-          orbitLinesRef.current = createOrbitLines(orbitLinesRef.current, newOrbitPaths, bodiesRef.current, scene);
+        const currentLevel = LEVELS[currentLevelId] || LEVELS.SOLAR_SYSTEM;
+        const isChaotic = currentLevel.simulationType === 'threeBody' || currentLevel.simulationType === 'nBody';
+        const recalcInterval = isChaotic ? ORBIT_PATH_RECALC_INTERVAL_CHAOTIC : ORBIT_PATH_RECALC_INTERVAL_STABLE;
+        const interpolationSpeed = isChaotic ? ORBIT_INTERPOLATION_SPEED_CHAOTIC : ORBIT_INTERPOLATION_SPEED_STABLE;
+        
+        // Interpolate towards target orbit paths each frame for smooth transitions
+        if (orbitTargetPathsRef.current.length > 0 && orbitInterpolationRef.current < 1) {
+          orbitInterpolationRef.current = Math.min(1, orbitInterpolationRef.current + interpolationSpeed);
+          interpolateOrbitLines(orbitLinesRef.current, orbitTargetPathsRef.current, interpolationSpeed);
+        }
+        
+        // Recalculate orbits periodically
+        if (!orbitCalculationPendingRef.current) {
+          orbitPathRecalculateCounterRef.current++;
+          if (orbitPathRecalculateCounterRef.current >= recalcInterval) {
+            orbitPathRecalculateCounterRef.current = 0;
+            orbitCalculationPendingRef.current = true;
+            
+            // For chaotic systems, calculate synchronously for real-time feel
+            // For stable systems, defer to not block render
+            if (isChaotic) {
+              try {
+                const newOrbitPaths = calculateOrbitPaths();
+                if (orbitLinesRef.current.length === 0) {
+                  orbitLinesRef.current = createOrbitLines(orbitLinesRef.current, newOrbitPaths, bodiesRef.current, scene);
+                } else {
+                  // Direct update for chaotic - faster response
+                  orbitLinesRef.current = createOrbitLines(orbitLinesRef.current, newOrbitPaths, bodiesRef.current, scene);
+                }
+              } catch (e) {
+                console.error('Orbit calculation error:', e);
+              }
+              orbitCalculationPendingRef.current = false;
+            } else {
+              // Defer heavy orbit calculation for stable systems
+              setTimeout(() => {
+                try {
+                  const newOrbitPaths = calculateOrbitPaths();
+                  if (orbitLinesRef.current.length === 0) {
+                    orbitLinesRef.current = createOrbitLines(orbitLinesRef.current, newOrbitPaths, bodiesRef.current, scene);
+                  } else {
+                    orbitTargetPathsRef.current = newOrbitPaths;
+                    orbitInterpolationRef.current = 0;
+                  }
+                } catch (e) {
+                  console.error('Orbit calculation error:', e);
+                }
+                orbitCalculationPendingRef.current = false;
+              }, 0);
+            }
+          }
         }
       }
       
@@ -1204,6 +1926,35 @@ const PlanetariumScene = () => {
         }
       }
 
+      // Debug stats calculation
+      const now = performance.now();
+      const actualFrameTime = now - (fpsFramesRef.current[fpsFramesRef.current.length - 1] || now);
+      frameTimeRef.current = actualFrameTime;
+      fpsFramesRef.current.push(now);
+      // Keep only frames from last second
+      while (fpsFramesRef.current.length > 0 && fpsFramesRef.current[0] < now - 1000) {
+        fpsFramesRef.current.shift();
+      }
+      // Update debug stats every 500ms to avoid excessive re-renders
+      if (now - lastFpsUpdateRef.current > 500) {
+        lastFpsUpdateRef.current = now;
+        // Use actual frame time for more accurate FPS when lagging
+        const fps = actualFrameTime > 0 ? Math.min(fpsFramesRef.current.length, Math.round(1000 / actualFrameTime)) : fpsFramesRef.current.length;
+        const memory = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : 0;
+        setDebugStats({
+          fps,
+          frameTime: Math.round(actualFrameTime * 10) / 10, // ms per frame
+          bodies: bodiesRef.current.length,
+          probes: probesRef.current.length,
+          meshes: bodyMeshesRef.current.length + probeMeshesRef.current.length,
+          memory,
+          triangles: renderer.info.render.triangles,
+          drawCalls: renderer.info.render.calls,
+          textures: renderer.info.memory.textures,
+          geometries: renderer.info.memory.geometries
+        });
+      }
+
       controls.update();
       renderer.render(scene, camera);
     };
@@ -1261,8 +2012,8 @@ const PlanetariumScene = () => {
       if (zoomTimeout) clearTimeout(zoomTimeout);
       mountRef.current?.removeChild(renderer.domElement);
       
-      if (physicsWorkerRef.current) {
-        physicsWorkerRef.current.terminate();
+      if (physicsWorker) {
+        physicsWorker.terminate();
       }
 
       // Clean up solar flares
@@ -1282,6 +2033,12 @@ const PlanetariumScene = () => {
       probeTrajectoryLinesRef.current.clear();
       probeTrajectoryPointsRef.current.clear();
 
+      // Clean up planetary rings
+      planetRingsRef.current = [];
+      
+      // Mark as unmounted to prevent state updates after cleanup
+      isMounted = false;
+
       // Clean up Three.js objects
       scene.traverse(object => {
         if (object.isMesh || object.isLine || object.isPoints) {
@@ -1296,7 +2053,7 @@ const PlanetariumScene = () => {
       renderer.dispose();
       controls.dispose();
     };
-  }, [simulationMode]); // Re-initialize when simulation mode changes
+  }, [currentLevelId, isClient]); // Re-initialize when level changes or client mounts
 
   const cleanMaterial = (material) => {
     material.map?.dispose();
@@ -1619,30 +2376,50 @@ const PlanetariumScene = () => {
     }
   }, [isResizing, handleResize, handleResizeEnd]);
 
+  // Show loading state during SSR, initial hydration, or while loading assets
   return (
     <>
+      {/* Main scene container - always rendered for hydration consistency */}
       <div ref={mountRef} className="w-full h-full" />
       
+      {/* Loading overlay - shown until ready */}
+      {(!isClient || isLoading) && (
+        <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-50">
+          <div className="text-white text-2xl font-bold mb-4">Gravity Assist</div>
+          <div className="w-64 h-2 bg-gray-800 rounded-full overflow-hidden mb-4">
+            <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '60%' }} />
+          </div>
+          <div className="text-gray-400 text-sm">{isClient ? loadingStatus : 'Initializing...'}</div>
+        </div>
+      )}
+      
       {/* Unified UI Panel - contains Missions, Probe Launcher, and Camera Presets */}
-      <UnifiedUI
-        simulationMode={simulationMode}
-        missionsProps={{
-          probes: probesRef.current,
-          bodies: bodiesRef.current
-        }}
-        probeLauncherProps={{
-          earth: earthData,
-          allBodies: allBodiesData,
-          timeScale: timeScale,
-          onLaunchProbe: handleLaunchProbe,
-          onUpdateTrajectory: handleUpdateTrajectory
-        }}
-        cameraPresets={bodiesRef.current}
+      {isClient && !isLoading && (
+        <UnifiedUI
+          simulationMode={simulationMode}
+          missionsProps={{
+            probes: probesRef.current,
+            bodies: bodiesRef.current
+          }}
+          probeLauncherProps={{
+            earth: earthData,
+            allBodies: allBodiesData,
+            timeScale: timeScale,
+            onLaunchProbe: handleLaunchProbe,
+            onUpdateTrajectory: handleUpdateTrajectory
+          }}
+          cameraPresets={bodiesRef.current}
         onCameraPreset={handleCameraPreset}
+        levelsProps={{
+          currentLevelId,
+          availableLevels: LEVELS,
+          onLevelChange: setCurrentLevelId
+        }}
       />
+      )}
       
       {/* Planet Labels - Initialize once, then update in animation loop */}
-      {showLabels && simulationMode === 'solarSystem' && cameraRef.current && sceneRef.current && (
+      {isClient && !isLoading && showLabels && simulationMode === 'solarSystem' && cameraRef.current && sceneRef.current && (
         <PlanetLabels
           bodies={bodiesRef.current}
           bodyMeshes={bodyMeshesRef.current}
@@ -1652,7 +2429,7 @@ const PlanetariumScene = () => {
         />
       )}
 
-      {selectedBody && (
+      {isClient && !isLoading && selectedBody && (
         <div
           className={`fixed top-0 right-0 h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-2xl
               transform backdrop-blur-xl border-l border-slate-700/50 flex flex-col
@@ -2114,10 +2891,12 @@ const PlanetariumScene = () => {
         </div>
       )}
 
+      {/* Bottom control bar */}
+      {isClient && !isLoading && (
       <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gradient-to-br from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl text-white rounded-lg px-3 py-2 flex gap-1.5 items-center shadow-2xl border border-slate-700/50 z-30">
         <button
           onClick={() => {
-            setTimeScale(prev => Math.max(MIN_TIME_SCALE, prev - 1000));
+            setTimeScale(prev => Math.max(MIN_TIME_SCALE, prev - TIME_SCALE_STEP * 10));
           }}
           className="bg-slate-700/50 hover:bg-slate-600/50 px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
           title="Major Decrease"
@@ -2129,7 +2908,7 @@ const PlanetariumScene = () => {
 
         <button
           onClick={() => {
-            setTimeScale(prev => Math.max(MIN_TIME_SCALE, prev - 100));
+            setTimeScale(prev => Math.max(MIN_TIME_SCALE, prev - TIME_SCALE_STEP));
           }}
           className="bg-slate-700/50 hover:bg-slate-600/50 px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
           title="Slight Decrease"
@@ -2159,7 +2938,7 @@ const PlanetariumScene = () => {
 
         <button
           onClick={() => {
-            setTimeScale(prev => Math.min(MAX_TIME_SCALE, prev + 100));
+            setTimeScale(prev => Math.min(MAX_TIME_SCALE, prev + TIME_SCALE_STEP));
           }}
           className="bg-slate-700/50 hover:bg-slate-600/50 px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
           title="Slight Increase"
@@ -2171,7 +2950,7 @@ const PlanetariumScene = () => {
 
         <button
           onClick={() => {
-            setTimeScale(prev => Math.min(MAX_TIME_SCALE, prev + 1000));
+            setTimeScale(prev => Math.min(MAX_TIME_SCALE, prev + TIME_SCALE_STEP * 10));
           }}
           className="bg-slate-700/50 hover:bg-slate-600/50 px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
           title="Major Increase"
@@ -2191,7 +2970,7 @@ const PlanetariumScene = () => {
               type="range"
               min={MIN_TIME_SCALE}
               max={MAX_TIME_SCALE}
-              step="100"
+              step={TIME_SCALE_STEP}
               value={timeScale}
               onChange={e => {
                 const value = Number(e.target.value);
@@ -2254,6 +3033,20 @@ const PlanetariumScene = () => {
         )}
 
         <button
+          onClick={() => setDebugMode(!debugMode)}
+          className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200 border ${
+            debugMode 
+              ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 border-amber-500/50' 
+              : 'bg-slate-700/50 hover:bg-slate-600/50 border-slate-600/50 text-slate-400 hover:text-white'
+          }`}
+          title="Toggle Debug Mode"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+          </svg>
+        </button>
+
+        <button
           onClick={() => setIsInfoPopupVisible(true)}
           className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
           title="Controls Information"
@@ -2265,8 +3058,84 @@ const PlanetariumScene = () => {
           </svg>
         </button>
       </div>
+      )}
 
-      {isInfoPopupVisible && (
+      {/* Debug Overlay */}
+      {isClient && !isLoading && debugMode && (
+        <div className="fixed top-4 right-4 bg-black/80 backdrop-blur-sm text-white rounded-lg p-3 z-40 font-mono text-xs border border-slate-700/50 min-w-[180px]">
+          <div className="flex items-center justify-between mb-2 border-b border-slate-700/50 pb-2">
+            <span className="text-amber-400 font-bold text-sm">Debug Info</span>
+            <button 
+              onClick={() => setDebugMode(false)}
+              className="text-slate-400 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="space-y-1">
+            <div className="flex justify-between">
+              <span className="text-slate-400">FPS:</span>
+              <span className={debugStats.fps < 30 ? 'text-red-400' : debugStats.fps < 50 ? 'text-yellow-400' : 'text-green-400'}>
+                {debugStats.fps}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Frame:</span>
+              <span className={debugStats.frameTime > 33 ? 'text-red-400' : debugStats.frameTime > 16 ? 'text-yellow-400' : 'text-green-400'}>
+                {debugStats.frameTime || 0}ms
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Bodies:</span>
+              <span className="text-blue-400">{debugStats.bodies}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Probes:</span>
+              <span className="text-purple-400">{debugStats.probes}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Meshes:</span>
+              <span className="text-cyan-400">{debugStats.meshes}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Triangles:</span>
+              <span className="text-orange-400">{(debugStats.triangles || 0).toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Draw Calls:</span>
+              <span className="text-pink-400">{debugStats.drawCalls || 0}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Textures:</span>
+              <span className="text-emerald-400">{debugStats.textures || 0}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Geometries:</span>
+              <span className="text-indigo-400">{debugStats.geometries || 0}</span>
+            </div>
+            {debugStats.memory > 0 && (
+              <div className="flex justify-between border-t border-slate-700/50 pt-1 mt-1">
+                <span className="text-slate-400">Memory:</span>
+                <span className="text-yellow-400">{debugStats.memory} MB</span>
+              </div>
+            )}
+            <div className="flex justify-between border-t border-slate-700/50 pt-1 mt-1">
+              <span className="text-slate-400">Level:</span>
+              <span className="text-white">{currentLevelId}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Time Scale:</span>
+              <span className="text-white">{timeScale}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Paused:</span>
+              <span className={isPaused ? 'text-red-400' : 'text-green-400'}>{isPaused ? 'Yes' : 'No'}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isClient && !isLoading && isInfoPopupVisible && (
         <div
           className="fixed inset-0 bg-black/70 flex justify-center items-start p-10 pt-20 z-50 overflow-auto"
           onClick={() => setIsInfoPopupVisible(false)}

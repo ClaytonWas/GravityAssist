@@ -1,250 +1,315 @@
-// Web Worker for physics calculations
-// This implements a full N-body simulation where EVERY body affects EVERY other body
-// This solves the N-body problem (including the three-body problem) using RK4 integration
+// Highly Optimized N-Body Physics Simulation Worker
+// Uses typed arrays, object pooling, and inlined math for maximum performance
 
-// Gravitational constant scaled for our units:
-// - Distance: 1 unit = 1 million km = 1e9 m
-// - Mass: relative to Earth (Earth = 1.0, but represents 5.97e24 kg)
-// - Time: seconds
-// G_real = 6.6743e-11 m^3/(kg*s^2)
-// G_scaled = G_real * (mass_earth_kg) / (distance_unit_m)^3
-// G_scaled = 6.6743e-11 * 5.97e24 / (1e9)^3
-// G_scaled = 6.6743e-11 * 5.97e24 / 1e27
-// G_scaled ≈ 3.984e-14 (but this is still too small for our scale)
-
-// Calculate G to match real orbital velocities:
-// Earth: v = 29.8 km/s = 0.0298 million km/s, r = 149.6 million km, M_sun = 332946
-// v^2 = G * M_sun / r
-// G = v^2 * r / M_sun = (0.0298)^2 * 149.6 / 332946 ≈ 3.99e-7
-// With smaller time step (dt = 160s), we can use more accurate G value
-const G = 3.8e-7; // Scaled gravitational constant - calibrated for accurate orbital velocities
-
-// Calculate acceleration for a body considering gravitational forces from ALL other bodies
-// This is the key to solving the N-body problem - not just sun-planet interactions
-// CRITICAL: This function MUST consider ALL bodies including probes for proper N-body physics
-function calculateAcceleration(currentBody, currentPos, allBodies) {
-  const acc = { x: 0, y: 0, z: 0 };
-  
-  // Iterate through ALL bodies - planets affect planets AND probes, probes are affected by all planets
-  // CRITICAL: For probes, this means they feel gravity from ALL planets, not just the sun
-  // CRITICAL: Planets also affect each other (Jupiter affects Earth, etc.)
-  // This is like Outer Wilds - every physics object is constantly being pulled by all others
-  for (const otherBody of allBodies) {
-    if (currentBody.id === otherBody.id) continue;
-    
-    const dx = otherBody.position.x - currentPos.x;
-    const dy = otherBody.position.y - currentPos.y;
-    const dz = otherBody.position.z - currentPos.z;
-    const distanceSq = dx * dx + dy * dy + dz * dz;
-    
-    if (distanceSq > 1e-6) {
-      const distance = Math.sqrt(distanceSq);
-      // F = G * m1 * m2 / r^2 (gravitational force)
-      // a = F / m1 = (G * m1 * m2 / r^2) / m1 = G * m2 / r^2
-      // So acceleration depends on the OTHER body's mass, not the current body's mass
-      // This means:
-      // - Probes ARE affected by planets (and the effect is independent of probe mass)
-      // - Planets ARE affected by other planets (Jupiter affects Earth, etc.)
-      const accelerationMagnitude = (G * otherBody.mass) / distanceSq;
-      
-      // Direction vector normalized (points from current body toward other body)
-      const dirX = dx / distance;
-      const dirY = dy / distance;
-      const dirZ = dz / distance;
-      
-      acc.x += dirX * accelerationMagnitude;
-      acc.y += dirY * accelerationMagnitude;
-      acc.z += dirZ * accelerationMagnitude;
-    }
-  }
-  
-  return acc;
-}
-
-// RK4 integration step - calculates new position and velocity for a body
-// CRITICAL: allBodies contains ALL bodies, so this calculates forces from ALL of them
-function rk4Step(body, allBodies, dt) {
-  // k1: acceleration and velocity at current position
-  const k1v = calculateAcceleration(body, body.position, allBodies);
-  const k1p = { x: body.velocity.x, y: body.velocity.y, z: body.velocity.z };
-  
-  // k2: acceleration and velocity at midpoint using k1
-  const pos2 = { 
-    x: body.position.x + k1p.x * dt / 2, 
-    y: body.position.y + k1p.y * dt / 2, 
-    z: body.position.z + k1p.z * dt / 2 
-  };
-  const vel2 = { 
-    x: body.velocity.x + k1v.x * dt / 2, 
-    y: body.velocity.y + k1v.y * dt / 2, 
-    z: body.velocity.z + k1v.z * dt / 2 
-  };
-  const k2v = calculateAcceleration(body, pos2, allBodies);
-  const k2p = { x: vel2.x, y: vel2.y, z: vel2.z };
-  
-  // k3: acceleration and velocity at midpoint using k2
-  const pos3 = { 
-    x: body.position.x + k2p.x * dt / 2, 
-    y: body.position.y + k2p.y * dt / 2, 
-    z: body.position.z + k2p.z * dt / 2 
-  };
-  const vel3 = { 
-    x: body.velocity.x + k2v.x * dt / 2, 
-    y: body.velocity.y + k2v.y * dt / 2, 
-    z: body.velocity.z + k2v.z * dt / 2 
-  };
-  const k3v = calculateAcceleration(body, pos3, allBodies);
-  const k3p = { x: vel3.x, y: vel3.y, z: vel3.z };
-  
-  // k4: acceleration and velocity at endpoint using k3
-  const pos4 = { 
-    x: body.position.x + k3p.x * dt, 
-    y: body.position.y + k3p.y * dt, 
-    z: body.position.z + k3p.z * dt 
-  };
-  const vel4 = { 
-    x: body.velocity.x + k3v.x * dt, 
-    y: body.velocity.y + k3v.y * dt, 
-    z: body.velocity.z + k3v.z * dt 
-  };
-  const k4v = calculateAcceleration(body, pos4, allBodies);
-  const k4p = { x: vel4.x, y: vel4.y, z: vel4.z };
-  
-  // Weighted average of all k values
-  const dvx = (k1v.x + 2 * k2v.x + 2 * k3v.x + k4v.x) * dt / 6;
-  const dvy = (k1v.y + 2 * k2v.y + 2 * k3v.y + k4v.y) * dt / 6;
-  const dvz = (k1v.z + 2 * k2v.z + 2 * k3v.z + k4v.z) * dt / 6;
-  const dpx = (k1p.x + 2 * k2p.x + 2 * k3p.x + k4p.x) * dt / 6;
-  const dpy = (k1p.y + 2 * k2p.y + 2 * k3p.y + k4p.y) * dt / 6;
-  const dpz = (k1p.z + 2 * k2p.z + 2 * k3p.z + k4p.z) * dt / 6;
-  
-  return {
-    velocity: { x: body.velocity.x + dvx, y: body.velocity.y + dvy, z: body.velocity.z + dvz },
-    position: { x: body.position.x + dpx, y: body.position.y + dpy, z: body.position.z + dpz }
-  };
-}
-
-let bodies = [];
-let timeScale = 1000; // Default speed
+let G = 1.0;
+let n = 0;  // Number of bodies
+let timeScale = 1;
 let isPaused = false;
 let frameId = null;
 
-// Main simulation loop - like Outer Wilds, every physics object is constantly being evaluated
-function simulate() {
-  if (isPaused) {
-    frameId = setTimeout(simulate, 16);
-    return;
-  }
-  
-  if (bodies.length === 0) {
-    frameId = setTimeout(simulate, 16);
-    return;
-  }
-  
-  const dt = timeScale * 0.016;
-  
-  // CRITICAL: Calculate all updates FIRST, then apply them simultaneously
-  // This ensures all bodies use the same "current" positions when calculating forces
-  // This is required for proper N-body physics (solving the N-body problem)
-  // IMPORTANT: The 'bodies' array contains ALL bodies (planets, sun, AND probes)
-  // When we pass 'bodies' to rk4Step, it calculates forces from ALL bodies
-  
-  // Calculate accelerations and updates for all bodies
-  // Each body feels forces from ALL other bodies - this is the key to N-body physics
-  const updates = [];
-  for (let i = 0; i < bodies.length; i++) {
-    // Calculate acceleration from ALL other bodies
-    const acc = calculateAcceleration(bodies[i], bodies[i].position, bodies);
+// Pre-allocated typed arrays for maximum performance (avoid GC)
+const MAX_BODIES = 64;
+
+// State arrays - using Float64Array for precision
+const mass = new Float64Array(MAX_BODIES);
+const px = new Float64Array(MAX_BODIES);
+const py = new Float64Array(MAX_BODIES);
+const pz = new Float64Array(MAX_BODIES);
+const vx = new Float64Array(MAX_BODIES);
+const vy = new Float64Array(MAX_BODIES);
+const vz = new Float64Array(MAX_BODIES);
+
+// Temporary arrays for RK4 (pre-allocated)
+const px0 = new Float64Array(MAX_BODIES);
+const py0 = new Float64Array(MAX_BODIES);
+const pz0 = new Float64Array(MAX_BODIES);
+const vx0 = new Float64Array(MAX_BODIES);
+const vy0 = new Float64Array(MAX_BODIES);
+const vz0 = new Float64Array(MAX_BODIES);
+
+// k1-k4 acceleration arrays
+const k1ax = new Float64Array(MAX_BODIES);
+const k1ay = new Float64Array(MAX_BODIES);
+const k1az = new Float64Array(MAX_BODIES);
+const k2ax = new Float64Array(MAX_BODIES);
+const k2ay = new Float64Array(MAX_BODIES);
+const k2az = new Float64Array(MAX_BODIES);
+const k3ax = new Float64Array(MAX_BODIES);
+const k3ay = new Float64Array(MAX_BODIES);
+const k3az = new Float64Array(MAX_BODIES);
+const k4ax = new Float64Array(MAX_BODIES);
+const k4ay = new Float64Array(MAX_BODIES);
+const k4az = new Float64Array(MAX_BODIES);
+
+// Temp position arrays for RK4 stages
+const tmpPx = new Float64Array(MAX_BODIES);
+const tmpPy = new Float64Array(MAX_BODIES);
+const tmpPz = new Float64Array(MAX_BODIES);
+
+// Body IDs (strings stored separately)
+const bodyIds = new Array(MAX_BODIES);
+
+// Softening squared (prevents division by zero)
+const SOFTENING_SQ = 0.000001;
+
+// Calculate all accelerations given positions
+// Inlined for performance - avoids function call overhead
+function computeAccelerations(posX, posY, posZ, outAx, outAy, outAz) {
+  for (let i = 0; i < n; i++) {
+    let ax = 0, ay = 0, az = 0;
+    const xi = posX[i], yi = posY[i], zi = posZ[i];
     
-    // RK4 integration step - this uses the acceleration to update position and velocity
-    const result = rk4Step(bodies[i], bodies, dt);
-    updates.push(result);
-    
-    // Debug for three-body problem - log accelerations to verify forces are being calculated
-    if (bodies.length === 3 && Math.random() < 0.01) {
-      const body = bodies[i];
-      const accMag = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
-      console.log(`🔺 Body ${i+1} (${body.id.substring(0, 10)}):`, {
-        pos: { x: body.position.x.toFixed(2), y: body.position.y.toFixed(2), z: body.position.z.toFixed(2) },
-        vel: { x: body.velocity.x.toFixed(4), y: body.velocity.y.toFixed(4), z: body.velocity.z.toFixed(4) },
-        acc: { x: acc.x.toExponential(2), y: acc.y.toExponential(2), z: acc.z.toExponential(2), mag: accMag.toExponential(2) },
-        mass: body.mass
-      });
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      
+      const dx = posX[j] - xi;
+      const dy = posY[j] - yi;
+      const dz = posZ[j] - zi;
+      
+      const distSq = dx * dx + dy * dy + dz * dz + SOFTENING_SQ;
+      const dist = Math.sqrt(distSq);
+      const invDist3 = 1.0 / (distSq * dist);
+      const f = G * mass[j] * invDist3;
+      
+      ax += f * dx;
+      ay += f * dy;
+      az += f * dz;
     }
+    
+    outAx[i] = ax;
+    outAy[i] = ay;
+    outAz[i] = az;
+  }
+}
+
+// RK4 integration - fully optimized with typed arrays
+function integrateRK4(dt) {
+  if (n === 0) return;
+  
+  const dt2 = dt * 0.5;
+  const dt6 = dt / 6.0;
+  
+  // Save initial state
+  for (let i = 0; i < n; i++) {
+    px0[i] = px[i];
+    py0[i] = py[i];
+    pz0[i] = pz[i];
+    vx0[i] = vx[i];
+    vy0[i] = vy[i];
+    vz0[i] = vz[i];
   }
   
-  // Now apply all updates simultaneously
-  // This is critical - all bodies update at the same time using the same "snapshot" of positions
-  for (let i = 0; i < bodies.length; i++) {
-    bodies[i].velocity = updates[i].velocity;
-    bodies[i].position = updates[i].position;
+  // k1: acceleration at current position
+  computeAccelerations(px, py, pz, k1ax, k1ay, k1az);
+  
+  // k2: acceleration at midpoint using k1
+  for (let i = 0; i < n; i++) {
+    tmpPx[i] = px0[i] + vx0[i] * dt2;
+    tmpPy[i] = py0[i] + vy0[i] * dt2;
+    tmpPz[i] = pz0[i] + vz0[i] * dt2;
+  }
+  computeAccelerations(tmpPx, tmpPy, tmpPz, k2ax, k2ay, k2az);
+  
+  // k3: acceleration at midpoint using k2
+  for (let i = 0; i < n; i++) {
+    const vxMid = vx0[i] + k1ax[i] * dt2;
+    const vyMid = vy0[i] + k1ay[i] * dt2;
+    const vzMid = vz0[i] + k1az[i] * dt2;
+    tmpPx[i] = px0[i] + vxMid * dt2;
+    tmpPy[i] = py0[i] + vyMid * dt2;
+    tmpPz[i] = pz0[i] + vzMid * dt2;
+  }
+  computeAccelerations(tmpPx, tmpPy, tmpPz, k3ax, k3ay, k3az);
+  
+  // k4: acceleration at endpoint using k3
+  for (let i = 0; i < n; i++) {
+    const vxEnd = vx0[i] + k2ax[i] * dt;
+    const vyEnd = vy0[i] + k2ay[i] * dt;
+    const vzEnd = vz0[i] + k2az[i] * dt;
+    tmpPx[i] = px0[i] + vxEnd * dt;
+    tmpPy[i] = py0[i] + vyEnd * dt;
+    tmpPz[i] = pz0[i] + vzEnd * dt;
+  }
+  computeAccelerations(tmpPx, tmpPy, tmpPz, k4ax, k4ay, k4az);
+  
+  // Final update: weighted average
+  for (let i = 0; i < n; i++) {
+    // Update velocities
+    vx[i] = vx0[i] + (k1ax[i] + 2.0 * k2ax[i] + 2.0 * k3ax[i] + k4ax[i]) * dt6;
+    vy[i] = vy0[i] + (k1ay[i] + 2.0 * k2ay[i] + 2.0 * k3ay[i] + k4ay[i]) * dt6;
+    vz[i] = vz0[i] + (k1az[i] + 2.0 * k2az[i] + 2.0 * k3az[i] + k4az[i]) * dt6;
+    
+    // Update positions using velocity (k values are velocities for position)
+    px[i] = px0[i] + (vx0[i] + 2.0 * (vx0[i] + k1ax[i] * dt2) + 2.0 * (vx0[i] + k2ax[i] * dt2) + (vx0[i] + k3ax[i] * dt)) * dt6;
+    py[i] = py0[i] + (vy0[i] + 2.0 * (vy0[i] + k1ay[i] * dt2) + 2.0 * (vy0[i] + k2ay[i] * dt2) + (vy0[i] + k3ay[i] * dt)) * dt6;
+    pz[i] = pz0[i] + (vz0[i] + 2.0 * (vz0[i] + k1az[i] * dt2) + 2.0 * (vz0[i] + k2az[i] * dt2) + (vz0[i] + k3az[i] * dt)) * dt6;
+  }
+}
+
+// Leapfrog integration - faster alternative, good energy conservation
+function integrateLeapfrog(dt) {
+  if (n === 0) return;
+  
+  const dt2 = dt * 0.5;
+  
+  // Half-step velocity update
+  computeAccelerations(px, py, pz, k1ax, k1ay, k1az);
+  for (let i = 0; i < n; i++) {
+    vx[i] += k1ax[i] * dt2;
+    vy[i] += k1ay[i] * dt2;
+    vz[i] += k1az[i] * dt2;
   }
   
-  // Send updates to main thread
-  // The main thread will update the visual positions of all bodies
-  self.postMessage({
-    type: 'update',
-    bodies: bodies.map(body => ({
-      id: body.id,
-      position: { x: body.position.x, y: body.position.y, z: body.position.z },
-      velocity: { x: body.velocity.x, y: body.velocity.y, z: body.velocity.z }
-    }))
-  });
+  // Full-step position update
+  for (let i = 0; i < n; i++) {
+    px[i] += vx[i] * dt;
+    py[i] += vy[i] * dt;
+    pz[i] += vz[i] * dt;
+  }
+  
+  // Half-step velocity update
+  computeAccelerations(px, py, pz, k1ax, k1ay, k1az);
+  for (let i = 0; i < n; i++) {
+    vx[i] += k1ax[i] * dt2;
+    vy[i] += k1ay[i] * dt2;
+    vz[i] += k1az[i] * dt2;
+  }
+}
+
+// Pre-allocate output object to avoid GC
+const outputBodies = new Array(MAX_BODIES);
+for (let i = 0; i < MAX_BODIES; i++) {
+  outputBodies[i] = {
+    id: '',
+    position: { x: 0, y: 0, z: 0 },
+    velocity: { x: 0, y: 0, z: 0 }
+  };
+}
+
+// Main simulation loop
+function simulate() {
+  if (!isPaused && n > 0) {
+    // Adaptive substeps based on body count
+    const substeps = n > 20 ? 4 : (n > 10 ? 6 : 8);
+    const dt = (timeScale * 0.016) / substeps;
+    
+    // Use leapfrog for speed, RK4 for accuracy
+    // Leapfrog is ~2x faster and has good energy conservation
+    for (let i = 0; i < substeps; i++) {
+      integrateLeapfrog(dt);
+    }
+    
+    // Build output (reuse objects to avoid GC)
+    for (let i = 0; i < n; i++) {
+      outputBodies[i].id = bodyIds[i];
+      outputBodies[i].position.x = px[i];
+      outputBodies[i].position.y = py[i];
+      outputBodies[i].position.z = pz[i];
+      outputBodies[i].velocity.x = vx[i];
+      outputBodies[i].velocity.y = vy[i];
+      outputBodies[i].velocity.z = vz[i];
+    }
+    
+    // Send update - reuse array, just set length
+    self.postMessage({
+      type: 'update',
+      bodies: outputBodies,
+      bodyCount: n
+    });
+  }
   
   frameId = setTimeout(simulate, 16);
 }
 
+// Handle messages from main thread
 self.onmessage = function(e) {
   const { type, data } = e.data;
+  
   switch (type) {
     case 'init':
-      bodies = data.bodies.map(body => ({
-        id: body.id,
-        mass: body.mass,
-        position: { x: body.position.x, y: body.position.y, z: body.position.z },
-        velocity: { x: body.velocity.x, y: body.velocity.y, z: body.velocity.z }
-      }));
-      timeScale = data.timeScale || 10000;
+      if (data.gConstant !== undefined) {
+        G = data.gConstant;
+      }
+      
+      // Initialize bodies into typed arrays
+      n = Math.min(data.bodies.length, MAX_BODIES);
+      for (let i = 0; i < n; i++) {
+        const b = data.bodies[i];
+        bodyIds[i] = b.id;
+        mass[i] = b.mass;
+        px[i] = b.position.x;
+        py[i] = b.position.y;
+        pz[i] = b.position.z;
+        vx[i] = b.velocity.x;
+        vy[i] = b.velocity.y;
+        vz[i] = b.velocity.z;
+      }
+      
+      timeScale = data.timeScale || 1;
       isPaused = data.isPaused || false;
       
-      console.log('🚀 Physics worker initialized with', bodies.length, 'bodies');
-      if (bodies.length === 3) {
-        console.log('🔺 Three-body problem initialized:');
-        bodies.forEach((b, i) => {
-          console.log(`   Body ${i+1}: mass=${b.mass}, pos=(${b.position.x.toFixed(2)}, ${b.position.y.toFixed(2)}), vel=(${b.velocity.x.toFixed(4)}, ${b.velocity.y.toFixed(4)})`);
-        });
-      }
+      console.log('Physics initialized:', { G, timeScale, bodyCount: n });
       
       if (frameId) clearTimeout(frameId);
       simulate();
       break;
+      
     case 'updateBodies':
-      bodies = data.bodies.map(body => ({
-        id: body.id,
-        mass: body.mass,
-        position: { x: body.position.x, y: body.position.y, z: body.position.z },
-        velocity: { x: body.velocity.x, y: body.velocity.y, z: body.velocity.z }
-      }));
+      n = Math.min(data.bodies.length, MAX_BODIES);
+      for (let i = 0; i < n; i++) {
+        const b = data.bodies[i];
+        bodyIds[i] = b.id;
+        mass[i] = b.mass;
+        px[i] = b.position.x;
+        py[i] = b.position.y;
+        pz[i] = b.position.z;
+        vx[i] = b.velocity.x;
+        vy[i] = b.velocity.y;
+        vz[i] = b.velocity.z;
+      }
       break;
+      
     case 'setTimeScale':
       timeScale = data.timeScale;
       break;
+      
     case 'setPaused':
       isPaused = data.isPaused;
       break;
+      
     case 'addBody':
-      const bodyToAdd = {
-        id: data.body.id,
-        mass: data.body.mass,
-        position: { x: data.body.position.x, y: data.body.position.y, z: data.body.position.z },
-        velocity: { x: data.body.velocity.x, y: data.body.velocity.y, z: data.body.velocity.z }
-      };
-      bodies.push(bodyToAdd);
-      console.log('✅ Added body to simulation:', bodyToAdd.id, 'Total bodies:', bodies.length);
-      console.log('All bodies in simulation:', bodies.map(b => ({ id: b.id, mass: b.mass, pos: b.position })));
+      if (n < MAX_BODIES) {
+        const b = data.body || data;
+        if (b && b.id) {
+          bodyIds[n] = b.id;
+          mass[n] = b.mass;
+          px[n] = b.position.x;
+          py[n] = b.position.y;
+          pz[n] = b.position.z;
+          vx[n] = b.velocity.x;
+          vy[n] = b.velocity.y;
+          vz[n] = b.velocity.z;
+          n++;
+        }
+      }
       break;
+      
     case 'removeBody':
-      bodies = bodies.filter(b => b.id !== data.bodyId);
+      const idx = bodyIds.indexOf(data.bodyId);
+      if (idx !== -1 && idx < n) {
+        // Swap with last element and decrement count
+        n--;
+        if (idx < n) {
+          bodyIds[idx] = bodyIds[n];
+          mass[idx] = mass[n];
+          px[idx] = px[n];
+          py[idx] = py[n];
+          pz[idx] = pz[n];
+          vx[idx] = vx[n];
+          vy[idx] = vy[n];
+          vz[idx] = vz[n];
+        }
+      }
       break;
   }
 };

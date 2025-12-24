@@ -9,7 +9,8 @@ export default function UnifiedUI({
   missionsProps,
   probeLauncherProps,
   cameraPresets,
-  onCameraPreset
+  onCameraPreset,
+  levelsProps
 }) {
   // Persist activeTab in localStorage so it doesn't reset
   // Start with default to avoid hydration mismatch
@@ -92,7 +93,8 @@ export default function UnifiedUI({
   const tabs = [
     { id: 'missions', label: 'Missions', icon: '🎯' },
     { id: 'probe', label: 'Probe Launcher', icon: '🚀' },
-    { id: 'camera', label: 'Camera', icon: '📷' }
+    { id: 'camera', label: 'Camera', icon: '📷' },
+    { id: 'levels', label: 'Levels', icon: '🌌' }
   ];
 
   return (
@@ -190,6 +192,26 @@ export default function UnifiedUI({
                     <li><span className="text-blue-400">0:</span> Unlock</li>
                   </ul>
                 </div>
+              </div>
+            )}
+
+            {activeTab === 'levels' && (
+              <div className="p-3 space-y-3">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Select Simulation</h3>
+                {levelsProps && Object.values(levelsProps.availableLevels).map(level => (
+                  <button
+                    key={level.id}
+                    onClick={() => levelsProps.onLevelChange(level.id)}
+                    className={`w-full p-3 rounded-lg text-left transition-all duration-200 border ${
+                      levelsProps.currentLevelId === level.id
+                        ? 'bg-blue-600/20 border-blue-500/50 text-white'
+                        : 'bg-slate-800/50 border-slate-700/50 text-slate-300 hover:bg-slate-700/50 hover:border-slate-600'
+                    }`}
+                  >
+                    <div className="font-bold text-sm mb-1">{level.name}</div>
+                    <div className="text-xs text-slate-400">{level.description}</div>
+                  </button>
+                ))}
               </div>
             )}
           </div>
