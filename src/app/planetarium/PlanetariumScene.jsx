@@ -2431,19 +2431,28 @@ const PlanetariumScene = () => {
 
       {isClient && !isLoading && selectedBody && (
         <div
-          className={`fixed top-0 right-0 h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-2xl
-              transform backdrop-blur-xl border-l border-slate-700/50 flex flex-col
-              ${isInfoVisible ? 'translate-x-0' : 'translate-x-full'}
-              ${isResizing ? '' : 'transition-transform duration-300 ease-in-out'}`}
+          className={`fixed bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-2xl
+              transform backdrop-blur-xl border-slate-700/50 flex flex-col
+              ${isInfoVisible ? 'translate-x-0 sm:translate-y-0' : 'translate-x-full sm:translate-y-0'}
+              ${isResizing ? '' : 'transition-transform duration-300 ease-in-out'}
+              /* Mobile: bottom sheet style */
+              sm:top-0 sm:right-0 sm:h-screen sm:border-l sm:rounded-none
+              top-auto bottom-0 left-0 right-0 h-[70vh] rounded-t-2xl border-t sm:border-t-0
+              `}
           style={{
-            width: `${panelWidth}px`,
-            background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 50%, rgba(15, 23, 42, 0.95) 100%)',
+            width: typeof window !== 'undefined' && window.innerWidth < 640 ? '100%' : `${panelWidth}px`,
+            background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 41, 59, 0.98) 50%, rgba(15, 23, 42, 0.98) 100%)',
           }}
         >
-          {/* Resize Handle */}
+          {/* Mobile drag indicator */}
+          <div className="sm:hidden flex justify-center py-2 flex-shrink-0">
+            <div className="w-12 h-1 bg-slate-600 rounded-full"></div>
+          </div>
+          
+          {/* Resize Handle - desktop only */}
           <div
             onMouseDown={handleResizeStart}
-            className={`absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize transition-all z-50 group
+            className={`hidden sm:block absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize transition-all z-50 group
               ${isResizing ? 'bg-blue-500/80' : 'bg-transparent hover:bg-blue-500/40'}`}
             style={{
               cursor: 'ew-resize',
@@ -2893,12 +2902,12 @@ const PlanetariumScene = () => {
 
       {/* Bottom control bar */}
       {isClient && !isLoading && (
-      <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-gradient-to-br from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl text-white rounded-lg px-3 py-2 flex gap-1.5 items-center shadow-2xl border border-slate-700/50 z-30">
+      <div className="fixed bottom-2 sm:bottom-4 left-1/2 transform -translate-x-1/2 bg-gradient-to-br from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl text-white rounded-lg px-2 sm:px-3 py-2 flex gap-1 sm:gap-1.5 items-center shadow-2xl border border-slate-700/50 z-30 max-w-[95vw] overflow-x-auto">
         <button
           onClick={() => {
             setTimeScale(prev => Math.max(MIN_TIME_SCALE, prev - TIME_SCALE_STEP * 10));
           }}
-          className="bg-slate-700/50 hover:bg-slate-600/50 px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
+          className="bg-slate-700/50 hover:bg-slate-600/50 active:bg-slate-500/50 px-2 sm:px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500 touch-manipulation flex-shrink-0"
           title="Major Decrease"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
@@ -2910,7 +2919,7 @@ const PlanetariumScene = () => {
           onClick={() => {
             setTimeScale(prev => Math.max(MIN_TIME_SCALE, prev - TIME_SCALE_STEP));
           }}
-          className="bg-slate-700/50 hover:bg-slate-600/50 px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
+          className="bg-slate-700/50 hover:bg-slate-600/50 active:bg-slate-500/50 px-2 sm:px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500 touch-manipulation flex-shrink-0"
           title="Slight Decrease"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
@@ -2922,7 +2931,7 @@ const PlanetariumScene = () => {
           onClick={() => {
             setIsPaused(prev => !prev);
           }}
-          className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 px-3 py-1.5 rounded-lg font-semibold text-sm transition-all duration-200 shadow-lg hover:shadow-blue-500/50 transform hover:scale-105"
+          className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 active:from-blue-700 active:to-purple-700 px-3 py-1.5 rounded-lg font-semibold text-sm transition-all duration-200 shadow-lg hover:shadow-blue-500/50 active:scale-95 touch-manipulation flex-shrink-0"
           title="Pause / Resume"
         >
           {isPaused ? (
@@ -2940,7 +2949,7 @@ const PlanetariumScene = () => {
           onClick={() => {
             setTimeScale(prev => Math.min(MAX_TIME_SCALE, prev + TIME_SCALE_STEP));
           }}
-          className="bg-slate-700/50 hover:bg-slate-600/50 px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
+          className="bg-slate-700/50 hover:bg-slate-600/50 active:bg-slate-500/50 px-2 sm:px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500 touch-manipulation flex-shrink-0"
           title="Slight Increase"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
@@ -2952,7 +2961,7 @@ const PlanetariumScene = () => {
           onClick={() => {
             setTimeScale(prev => Math.min(MAX_TIME_SCALE, prev + TIME_SCALE_STEP * 10));
           }}
-          className="bg-slate-700/50 hover:bg-slate-600/50 px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
+          className="bg-slate-700/50 hover:bg-slate-600/50 active:bg-slate-500/50 px-2 sm:px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500 touch-manipulation flex-shrink-0"
           title="Major Increase"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
@@ -2960,12 +2969,12 @@ const PlanetariumScene = () => {
           </svg>
         </button>
 
-        <div className="relative group mx-3 font-mono inline-block">
-          <div className="text-sm text-slate-200 cursor-pointer font-semibold">
-            Speed: <span className="text-blue-400">{timeScale}</span>
+        <div className="relative group mx-1 sm:mx-3 font-mono inline-block flex-shrink-0">
+          <div className="text-xs sm:text-sm text-slate-200 cursor-pointer font-semibold whitespace-nowrap">
+            <span className="hidden sm:inline">Speed: </span><span className="text-blue-400">{timeScale}</span>
           </div>
 
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-all duration-300 z-50 px-4 py-3 w-56 bg-slate-800/30 backdrop-blur-xl rounded-lg border border-slate-700/50 shadow-2xl pointer-events-auto">
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-300 z-50 px-4 py-3 w-56 bg-slate-800/95 backdrop-blur-xl rounded-lg border border-slate-700/50 shadow-2xl pointer-events-auto">
             <input
               type="range"
               min={MIN_TIME_SCALE}
@@ -2976,23 +2985,7 @@ const PlanetariumScene = () => {
                 const value = Number(e.target.value);
                 setTimeScale(Math.max(MIN_TIME_SCALE, Math.min(MAX_TIME_SCALE, value)));
               }}
-              className="w-full appearance-none bg-slate-700 h-1.5 rounded-lg
-                  [&::-webkit-slider-thumb]:appearance-none
-                  [&::-webkit-slider-thumb]:h-3
-                  [&::-webkit-slider-thumb]:w-3
-                  [&::-webkit-slider-thumb]:rounded-full
-                  [&::-webkit-slider-thumb]:bg-gradient-to-r
-                  [&::-webkit-slider-thumb]:from-blue-500
-                  [&::-webkit-slider-thumb]:to-purple-500
-                  [&::-webkit-slider-thumb]:cursor-pointer
-                  [&::-moz-range-thumb]:appearance-none
-                  [&::-moz-range-thumb]:h-3
-                  [&::-moz-range-thumb]:w-3
-                  [&::-moz-range-thumb]:rounded-full
-                  [&::-moz-range-thumb]:bg-gradient-to-r
-                  [&::-moz-range-thumb]:from-blue-500
-                  [&::-moz-range-thumb]:to-purple-500
-                  [&::-moz-range-thumb]:cursor-pointer"
+              className="w-full h-2 touch-manipulation"
             />
             <div className="flex justify-between text-xs text-slate-400 mt-1">
               <span>{MIN_TIME_SCALE}</span>
@@ -3003,7 +2996,7 @@ const PlanetariumScene = () => {
 
         <button
           onClick={() => setShowOrbits(!showOrbits)}
-          className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200 border ${
+          className={`px-2 sm:px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200 border touch-manipulation flex-shrink-0 ${
             showOrbits 
               ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 border-green-500/50' 
               : 'bg-slate-700/50 hover:bg-slate-600/50 border-slate-600/50'
@@ -3019,7 +3012,7 @@ const PlanetariumScene = () => {
         {simulationMode === 'solarSystem' && (
           <button
             onClick={() => setShowLabels(!showLabels)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200 border ${
+            className={`px-2 sm:px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200 border touch-manipulation flex-shrink-0 ${
               showLabels 
                 ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 border-green-500/50' 
                 : 'bg-slate-700/50 hover:bg-slate-600/50 border-slate-600/50'
@@ -3034,7 +3027,7 @@ const PlanetariumScene = () => {
 
         <button
           onClick={() => setDebugMode(!debugMode)}
-          className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200 border ${
+          className={`hidden sm:block px-2 sm:px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200 border touch-manipulation flex-shrink-0 ${
             debugMode 
               ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 border-amber-500/50' 
               : 'bg-slate-700/50 hover:bg-slate-600/50 border-slate-600/50 text-slate-400 hover:text-white'
@@ -3048,7 +3041,7 @@ const PlanetariumScene = () => {
 
         <button
           onClick={() => setIsInfoPopupVisible(true)}
-          className="px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
+          className="px-2 sm:px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 active:bg-slate-600/50 transition-all duration-200 border border-slate-600/50 hover:border-slate-500 touch-manipulation flex-shrink-0"
           title="Controls Information"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor"
@@ -3062,12 +3055,12 @@ const PlanetariumScene = () => {
 
       {/* Debug Overlay */}
       {isClient && !isLoading && debugMode && (
-        <div className="fixed top-4 right-4 bg-black/80 backdrop-blur-sm text-white rounded-lg p-3 z-40 font-mono text-xs border border-slate-700/50 min-w-[180px]">
+        <div className="fixed top-2 sm:top-4 right-2 sm:right-4 bg-black/80 backdrop-blur-sm text-white rounded-lg p-2 sm:p-3 z-40 font-mono text-[10px] sm:text-xs border border-slate-700/50 min-w-[150px] sm:min-w-[180px]">
           <div className="flex items-center justify-between mb-2 border-b border-slate-700/50 pb-2">
-            <span className="text-amber-400 font-bold text-sm">Debug Info</span>
+            <span className="text-amber-400 font-bold text-xs sm:text-sm">Debug Info</span>
             <button 
               onClick={() => setDebugMode(false)}
-              className="text-slate-400 hover:text-white"
+              className="text-slate-400 hover:text-white p-1 touch-manipulation"
             >
               ✕
             </button>
@@ -3137,59 +3130,59 @@ const PlanetariumScene = () => {
 
       {isClient && !isLoading && isInfoPopupVisible && (
         <div
-          className="fixed inset-0 bg-black/70 flex justify-center items-start p-10 pt-20 z-50 overflow-auto"
+          className="fixed inset-0 bg-black/70 flex justify-center items-start p-4 sm:p-10 pt-10 sm:pt-20 z-50 overflow-auto"
           onClick={() => setIsInfoPopupVisible(false)}
         >
           <div
-            className="bg-black opacity-70 rounded-lg shadow-xl max-w-5xl w-full max-h-[calc(100vh-80px)] p-6 relative overflow-auto"
+            className="bg-black opacity-70 rounded-lg shadow-xl max-w-5xl w-full max-h-[calc(100vh-80px)] p-4 sm:p-6 relative overflow-auto"
             onClick={e => e.stopPropagation()}
-            style={{ minWidth: '400px' }}
+            style={{ minWidth: 'auto' }}
           >
             <button
               onClick={() => setIsInfoPopupVisible(false)}
-              className="absolute top-4 right-4 text-white hover:text-gray-300 text-3xl font-bold"
+              className="absolute top-2 sm:top-4 right-2 sm:right-4 text-white hover:text-gray-300 text-2xl sm:text-3xl font-bold p-2 touch-manipulation"
               title="Close"
             >
               &times;
             </button>
 
-            <h2 className="text-3xl font-bold mb-6 text-white">Solar System Explorer - Controls</h2>
+            <h2 className="text-xl sm:text-3xl font-bold mb-4 sm:mb-6 text-white pr-10">Solar System Explorer - Controls</h2>
             
-            <div className="space-y-6 text-white">
+            <div className="space-y-4 sm:space-y-6 text-white">
               <div>
-                <h3 className="text-xl font-semibold mb-3 text-blue-400">Navigation</h3>
-                <ul className="list-disc list-inside space-y-2 text-lg leading-relaxed">
-                  <li><strong>Mouse:</strong> Drag to rotate camera, scroll to zoom</li>
+                <h3 className="text-lg sm:text-xl font-semibold mb-2 sm:mb-3 text-blue-400">Navigation</h3>
+                <ul className="list-disc list-inside space-y-1 sm:space-y-2 text-sm sm:text-lg leading-relaxed">
+                  <li><strong>Touch/Mouse:</strong> Drag to rotate camera, pinch/scroll to zoom</li>
                   <li><strong>Keyboard:</strong> Press 1-8 to focus on planets, 9 for Sun, 0 to reset</li>
-                  <li><strong>Camera Presets:</strong> Use the panel (left side) to quickly jump to any planet</li>
-                  <li><strong>Click Planets:</strong> Click any planet to see detailed information</li>
+                  <li><strong>Camera Presets:</strong> Use the panel to quickly jump to any planet</li>
+                  <li><strong>Tap/Click Planets:</strong> Tap any planet to see detailed information</li>
                 </ul>
               </div>
 
               <div>
-                <h3 className="text-xl font-semibold mb-3 text-green-400">Simulation Controls</h3>
-                <ul className="list-disc list-inside space-y-2 text-lg leading-relaxed">
-                  <li><strong>Pause/Resume:</strong> Click the pause button to stop/start simulation</li>
-                  <li><strong>Speed Control:</strong> Use +/- buttons or hover over "Speed" for slider</li>
+                <h3 className="text-lg sm:text-xl font-semibold mb-2 sm:mb-3 text-green-400">Simulation Controls</h3>
+                <ul className="list-disc list-inside space-y-1 sm:space-y-2 text-sm sm:text-lg leading-relaxed">
+                  <li><strong>Pause/Resume:</strong> Tap the pause button to stop/start simulation</li>
+                  <li><strong>Speed Control:</strong> Use +/- buttons or tap "Speed" for slider</li>
                   <li><strong>Orbit Paths:</strong> Toggle to show/hide predicted orbital paths</li>
                   <li><strong>Planet Labels:</strong> Toggle to show/hide planet name labels</li>
                 </ul>
               </div>
 
               <div>
-                <h3 className="text-xl font-semibold mb-3 text-yellow-400">Probe Missions</h3>
-                <ul className="list-disc list-inside space-y-2 text-lg leading-relaxed">
-                  <li><strong>Launch Probes:</strong> Use Probe Launcher (top left) to launch from Earth</li>
-                  <li><strong>Mission Objectives:</strong> Check Missions panel (top left) for challenges</li>
+                <h3 className="text-lg sm:text-xl font-semibold mb-2 sm:mb-3 text-yellow-400">Probe Missions</h3>
+                <ul className="list-disc list-inside space-y-1 sm:space-y-2 text-sm sm:text-lg leading-relaxed">
+                  <li><strong>Launch Probes:</strong> Use Probe Launcher to launch from Earth</li>
+                  <li><strong>Mission Objectives:</strong> Check Missions panel for challenges</li>
                   <li><strong>Trajectory Preview:</strong> Orange line shows predicted probe path</li>
                   <li><strong>Gravity Assists:</strong> Plan trajectories to use planetary gravity</li>
                 </ul>
               </div>
 
               <div>
-                <h3 className="text-xl font-semibold mb-3 text-purple-400">Educational Features</h3>
-                <ul className="list-disc list-inside space-y-2 text-lg leading-relaxed">
-                  <li><strong>Planet Information:</strong> Click planets to learn facts and statistics</li>
+                <h3 className="text-lg sm:text-xl font-semibold mb-2 sm:mb-3 text-purple-400">Educational Features</h3>
+                <ul className="list-disc list-inside space-y-1 sm:space-y-2 text-sm sm:text-lg leading-relaxed">
+                  <li><strong>Planet Information:</strong> Tap planets to learn facts and statistics</li>
                   <li><strong>Orbital Mechanics:</strong> Watch how planets orbit and interact</li>
                   <li><strong>Scale Visualization:</strong> See accurate distances and sizes</li>
                   <li><strong>Time Controls:</strong> Speed up time to see long-term orbital patterns</li>

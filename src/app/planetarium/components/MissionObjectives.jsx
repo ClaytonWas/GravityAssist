@@ -96,17 +96,17 @@ export default function MissionObjectives({ probes, bodies, missionsState, setMi
 
   return (
     <div className="w-full">
-      <div className="mb-4">
-        <h3 className="text-lg font-bold">
+      <div className="mb-3 sm:mb-4">
+        <h3 className="text-base sm:text-lg font-bold">
           Missions ({completedCount}/{totalCount})
         </h3>
       </div>
       
-      <div className="space-y-3">
+      <div className="space-y-2 sm:space-y-3">
         {missions.map(mission => (
           <div 
             key={mission.id}
-            className={`p-3 rounded border-2 ${
+            className={`p-2.5 sm:p-3 rounded border-2 touch-manipulation ${
               mission.status === 'completed' 
                 ? 'border-green-500 bg-green-900 bg-opacity-30' 
                 : mission.status === 'in-progress'
@@ -115,9 +115,9 @@ export default function MissionObjectives({ probes, bodies, missionsState, setMi
             }`}
           >
             <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <h4 className="font-semibold text-sm">{mission.title}</h4>
-                <p className="text-xs text-gray-300 mt-1">{mission.description}</p>
+              <div className="flex-1 min-w-0">
+                <h4 className="font-semibold text-xs sm:text-sm">{mission.title}</h4>
+                <p className="text-[10px] sm:text-xs text-gray-300 mt-1 line-clamp-2">{mission.description}</p>
               </div>
               <div className="ml-2">
                 {mission.status === 'completed' && (

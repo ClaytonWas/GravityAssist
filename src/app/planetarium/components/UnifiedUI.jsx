@@ -98,8 +98,11 @@ export default function UnifiedUI({
   ];
 
   return (
-    <div className={`fixed top-4 left-4 bg-gradient-to-br from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl text-white rounded-lg shadow-2xl border border-slate-700/50 z-20 transition-all duration-300 ${
-      isExpanded ? 'w-72' : 'w-10'
+    <div className={`fixed bg-gradient-to-br from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl text-white rounded-lg shadow-2xl border border-slate-700/50 z-20 transition-all duration-300
+      sm:top-4 sm:left-4 sm:bottom-auto
+      bottom-20 left-2 right-2
+      ${
+      isExpanded ? 'sm:w-72 sm:right-auto w-auto' : 'w-10 right-auto left-2'
     }`}>
       {/* Header with collapse button */}
       <div className="flex items-center justify-between p-2.5 border-b border-slate-700/50 bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-600/10">
@@ -127,25 +130,25 @@ export default function UnifiedUI({
       {isExpanded && (
         <>
           {/* Tab Navigation */}
-          <div className="flex border-b border-slate-700/50">
+          <div className="flex border-b border-slate-700/50 overflow-x-auto">
             {tabs.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 px-2 py-1.5 text-xs font-semibold transition-all duration-200 ${
+                className={`flex-1 px-2 py-2 sm:py-1.5 text-xs font-semibold transition-all duration-200 whitespace-nowrap min-w-0 ${
                   activeTab === tab.id
                     ? 'bg-slate-800/50 text-white border-b-2 border-blue-500'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/30'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/30 active:bg-slate-700/50'
                 }`}
               >
                 <span className="mr-1">{tab.icon}</span>
-                {tab.label}
+                <span className="hidden xs:inline sm:inline">{tab.label}</span>
               </button>
             ))}
           </div>
 
           {/* Tab Content */}
-          <div className="max-h-[calc(100vh-10rem)] overflow-y-auto custom-scrollbar">
+          <div className="max-h-[40vh] sm:max-h-[calc(100vh-10rem)] overflow-y-auto custom-scrollbar">
             {/* Keep components mounted but hidden to preserve state */}
             <div className={activeTab === 'missions' ? 'block' : 'hidden'}>
               <div className="p-3">
@@ -170,7 +173,7 @@ export default function UnifiedUI({
             {activeTab === 'camera' && (
               <div className="p-3 space-y-3">
                 <h3 className="text-xs font-semibold mb-2 text-slate-400 uppercase tracking-wider">Camera Presets</h3>
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="grid grid-cols-3 sm:grid-cols-2 gap-1.5">
                   {['Sun', 'Mercury', 'Venus', 'Earth', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune'].map((name) => {
                     const body = cameraPresets.find(b => b && b.name === name);
                     if (!body) return null;
@@ -178,7 +181,7 @@ export default function UnifiedUI({
                       <button
                         key={name}
                         onClick={() => onCameraPreset(name)}
-                        className="px-2 py-1.5 text-xs bg-slate-800/50 hover:bg-slate-700/50 rounded-lg transition-all duration-200 border border-slate-700/30 hover:border-blue-500/50 font-medium"
+                        className="px-2 py-2 sm:py-1.5 text-xs bg-slate-800/50 hover:bg-slate-700/50 active:bg-slate-600/50 rounded-lg transition-all duration-200 border border-slate-700/30 hover:border-blue-500/50 font-medium touch-manipulation"
                       >
                         {name}
                       </button>

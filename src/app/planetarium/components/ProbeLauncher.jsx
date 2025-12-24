@@ -104,11 +104,11 @@ export default function ProbeLauncher({
 
   return (
     <div className="w-full">
-      <h3 className="text-xl font-bold mb-4">Probe Launcher</h3>
+      <h3 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4">Probe Launcher</h3>
       
-      <div className="space-y-4">
+      <div className="space-y-3 sm:space-y-4">
         <div>
-          <label className="block text-sm mb-2">
+          <label className="block text-xs sm:text-sm mb-2">
             Launch Speed: {speed.toFixed(6)}
           </label>
           <input
@@ -118,12 +118,12 @@ export default function ProbeLauncher({
             step="0.001"
             value={speed}
             onChange={(e) => setSpeed(parseFloat(e.target.value))}
-            className="w-full"
+            className="w-full h-2 touch-manipulation"
           />
         </div>
 
         <div>
-          <label className="block text-sm mb-2">
+          <label className="block text-xs sm:text-sm mb-2">
             Azimuth (degrees): {launchAngle.azimuth.toFixed(1)}
           </label>
           <input
@@ -133,12 +133,12 @@ export default function ProbeLauncher({
             step="1"
             value={launchAngle.azimuth}
             onChange={(e) => setLaunchAngle({ ...launchAngle, azimuth: parseFloat(e.target.value) })}
-            className="w-full"
+            className="w-full h-2 touch-manipulation"
           />
         </div>
 
         <div>
-          <label className="block text-sm mb-2">
+          <label className="block text-xs sm:text-sm mb-2">
             Elevation (degrees): {launchAngle.elevation.toFixed(1)}
           </label>
           <input
@@ -148,17 +148,17 @@ export default function ProbeLauncher({
             step="1"
             value={launchAngle.elevation}
             onChange={(e) => setLaunchAngle({ ...launchAngle, elevation: parseFloat(e.target.value) })}
-            className="w-full"
+            className="w-full h-2 touch-manipulation"
           />
         </div>
 
         <div className="flex gap-2">
           <button
             onClick={() => setIsLaunching(!isLaunching)}
-            className={`flex-1 px-4 py-2 rounded ${
+            className={`flex-1 px-3 sm:px-4 py-2.5 sm:py-2 rounded text-sm font-medium touch-manipulation active:scale-95 transition-transform ${
               isLaunching 
-                ? 'bg-yellow-600 hover:bg-yellow-700' 
-                : 'bg-blue-600 hover:bg-blue-700'
+                ? 'bg-yellow-600 hover:bg-yellow-700 active:bg-yellow-800' 
+                : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800'
             }`}
           >
             {isLaunching ? 'Cancel' : 'Prepare Launch'}
@@ -167,7 +167,7 @@ export default function ProbeLauncher({
           {isLaunching && (
             <button
               onClick={handleLaunch}
-              className="flex-1 px-4 py-2 rounded bg-green-600 hover:bg-green-700"
+              className="flex-1 px-3 sm:px-4 py-2.5 sm:py-2 rounded bg-green-600 hover:bg-green-700 active:bg-green-800 text-sm font-medium touch-manipulation active:scale-95 transition-transform"
             >
               Launch Probe
             </button>
