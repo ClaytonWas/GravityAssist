@@ -1,9 +1,324 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import MissionObjectives from './MissionObjectives';
-import ProbeLauncher from './ProbeLauncher';
+import * as Tabs from '@radix-ui/react-tabs';
+import * as Collapsible from '@radix-ui/react-collapsible';
+import * as Slider from '@radix-ui/react-slider';
+import * as Tooltip from '@radix-ui/react-tooltip';
+import { cn } from '@/lib/utils';
+import { predictTrajectory } from '../core/physics';
 
+// ============================================================================
+// MISSIONS TAB CONTENT
+// ============================================================================
+const MISSIONS = [
+  { id: 'reach-mars', title: 'Reach Mars', description: 'Launch a probe to orbit Mars', target: 'Mars' },
+  { id: 'orbit-jupiter', title: 'Orbit Jupiter', description: 'Navigate to Jupiter', target: 'Jupiter' },
+  { id: 'explore-venus', title: 'Explore Venus', description: 'Send a probe to Venus', target: 'Venus' },
+  { id: 'outer-planets', title: 'Outer Planets', description: 'Reach Saturn, Uranus, or Neptune', target: 'Saturn' }
+];
+
+function MissionsContent({ probes, bodies }) {
+  const [missions, setMissions] = useState(MISSIONS.map(m => ({ ...m, status: 'pending' })));
+
+  useEffect(() => {
+    if (!probes?.length || !bodies?.length) return;
+    
+    const interval = setInterval(() => {
+      setMissions(prev => prev.map(mission => {
+        if (mission.status === 'completed') return mission;
+        const target = bodies.find(b => b?.name === mission.target);
+        if (!target?.position) return mission;
+        
+        const near = probes.some(probe => {
+          if (!probe?.position) return false;
+          const d = Math.sqrt(
+            Math.pow(probe.position.x - target.position.x, 2) +
+            Math.pow(probe.position.y - target.position.y, 2) +
+            Math.pow(probe.position.z - target.position.z, 2)
+          );
+          return d < 100;
+        });
+        
+        if (near && mission.status === 'pending') return { ...mission, status: 'in-progress' };
+        if (near && mission.status === 'in-progress') return { ...mission, status: 'completed' };
+        return mission;
+      }));
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [probes, bodies]);
+
+  const completed = missions.filter(m => m.status === 'completed').length;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs text-slate-400 uppercase tracking-wider font-medium">Progress</span>
+        <span className="text-xs font-bold text-blue-400">{completed}/{missions.length}</span>
+      </div>
+      {missions.map(m => (
+        <div
+          key={m.id}
+          className={cn(
+            "p-3 rounded-lg border transition-all",
+            m.status === 'completed' && "bg-emerald-500/10 border-emerald-500/30",
+            m.status === 'in-progress' && "bg-amber-500/10 border-amber-500/30",
+            m.status === 'pending' && "bg-slate-800/50 border-slate-700/50"
+          )}
+        >
+          <div className="flex items-start gap-3">
+            <div className={cn(
+              "w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-xs",
+              m.status === 'completed' && "bg-emerald-500 text-white",
+              m.status === 'in-progress' && "bg-amber-500 text-white animate-pulse",
+              m.status === 'pending' && "bg-slate-700 text-slate-400"
+            )}>
+              {m.status === 'completed' ? '✓' : m.status === 'in-progress' ? '◉' : '○'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-medium text-sm text-white">{m.title}</div>
+              <div className="text-xs text-slate-400 mt-0.5">{m.description}</div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================================
+// PROBE LAUNCHER TAB CONTENT
+// ============================================================================
+function ProbeLauncherContent({ earth, allBodies, timeScale, onLaunchProbe, onUpdateTrajectory }) {
+  const [speed, setSpeed] = useState([0.01]);
+  const [azimuth, setAzimuth] = useState([0]);
+  const [elevation, setElevation] = useState([0]);
+  const [isLaunching, setIsLaunching] = useState(false);
+
+  useEffect(() => {
+    if (!earth || !isLaunching) {
+      onUpdateTrajectory?.(null);
+      return;
+    }
+
+    const azRad = (azimuth[0] * Math.PI) / 180;
+    const elRad = (elevation[0] * Math.PI) / 180;
+    const dir = {
+      x: Math.cos(elRad) * Math.cos(azRad),
+      y: Math.sin(elRad),
+      z: Math.cos(elRad) * Math.sin(azRad)
+    };
+
+    const vel = {
+      x: earth.velocity.x + dir.x * speed[0],
+      y: earth.velocity.y + dir.y * speed[0],
+      z: earth.velocity.z + dir.z * speed[0]
+    };
+
+    const probe = { id: 'preview', mass: 0.001, position: { ...earth.position }, velocity: vel };
+    const trajectory = predictTrajectory(probe, allBodies, timeScale, 5000);
+    onUpdateTrajectory?.(trajectory);
+  }, [azimuth, elevation, speed, isLaunching, earth, allBodies, timeScale, onUpdateTrajectory]);
+
+  const handleLaunch = () => {
+    if (!earth) return;
+    
+    const azRad = (azimuth[0] * Math.PI) / 180;
+    const elRad = (elevation[0] * Math.PI) / 180;
+    const dir = {
+      x: Math.cos(elRad) * Math.cos(azRad),
+      y: Math.sin(elRad),
+      z: Math.cos(elRad) * Math.sin(azRad)
+    };
+
+    onLaunchProbe?.({
+      name: `Probe ${Date.now()}`,
+      position: { ...earth.position },
+      velocity: {
+        x: earth.velocity.x + dir.x * speed[0],
+        y: earth.velocity.y + dir.y * speed[0],
+        z: earth.velocity.z + dir.z * speed[0]
+      },
+      mass: 0.0001
+    });
+    setIsLaunching(false);
+  };
+
+  if (!earth) {
+    return <div className="text-sm text-slate-400 p-4">Waiting for Earth data...</div>;
+  }
+
+  return (
+    <div className="space-y-5">
+      <SliderControl 
+        label="Launch Speed" 
+        value={speed} 
+        onChange={setSpeed}
+        min={0.001} 
+        max={0.15} 
+        step={0.001}
+        format={v => v.toFixed(4)}
+      />
+      <SliderControl 
+        label="Azimuth" 
+        value={azimuth} 
+        onChange={setAzimuth}
+        min={0} 
+        max={360} 
+        step={1}
+        format={v => `${v.toFixed(0)}°`}
+      />
+      <SliderControl 
+        label="Elevation" 
+        value={elevation} 
+        onChange={setElevation}
+        min={-90} 
+        max={90} 
+        step={1}
+        format={v => `${v.toFixed(0)}°`}
+      />
+      
+      <div className="flex gap-2 pt-2">
+        <button
+          onClick={() => setIsLaunching(!isLaunching)}
+          className={cn(
+            "flex-1 py-2.5 px-4 rounded-lg font-medium text-sm transition-all",
+            isLaunching 
+              ? "bg-amber-500 hover:bg-amber-400 text-black" 
+              : "bg-blue-600 hover:bg-blue-500 text-white"
+          )}
+        >
+          {isLaunching ? 'Cancel' : 'Prepare Launch'}
+        </button>
+        {isLaunching && (
+          <button
+            onClick={handleLaunch}
+            className="flex-1 py-2.5 px-4 rounded-lg font-medium text-sm bg-emerald-500 hover:bg-emerald-400 text-white transition-all"
+          >
+            🚀 Launch
+          </button>
+        )}
+      </div>
+      
+      {isLaunching && (
+        <p className="text-xs text-slate-400 text-center">
+          Orange trajectory preview shown
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// SLIDER CONTROL COMPONENT (using Radix)
+// ============================================================================
+function SliderControl({ label, value, onChange, min, max, step, format }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex justify-between items-center">
+        <label className="text-xs text-slate-400 font-medium">{label}</label>
+        <span className="text-xs font-mono text-blue-400">{format(value[0])}</span>
+      </div>
+      <Slider.Root
+        className="relative flex items-center select-none touch-none w-full h-5"
+        value={value}
+        onValueChange={onChange}
+        min={min}
+        max={max}
+        step={step}
+      >
+        <Slider.Track className="bg-slate-700 relative grow rounded-full h-1.5">
+          <Slider.Range className="absolute bg-gradient-to-r from-blue-500 to-purple-500 rounded-full h-full" />
+        </Slider.Track>
+        <Slider.Thumb 
+          className="block w-4 h-4 bg-white rounded-full shadow-lg border-2 border-blue-500 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900 cursor-grab active:cursor-grabbing transition-colors"
+          aria-label={label}
+        />
+      </Slider.Root>
+    </div>
+  );
+}
+
+// ============================================================================
+// CAMERA TAB CONTENT
+// ============================================================================
+function CameraContent({ cameraPresets, onCameraPreset }) {
+  const planets = ['Sun', 'Mercury', 'Venus', 'Earth', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune'];
+  
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-1.5">
+        {planets.map(name => {
+          const body = cameraPresets?.find(b => b?.name === name);
+          if (!body) return null;
+          return (
+            <Tooltip.Root key={name}>
+              <Tooltip.Trigger asChild>
+                <button
+                  onClick={() => onCameraPreset?.(name)}
+                  className="py-2 px-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-blue-500/50 rounded-lg transition-all text-slate-200 hover:text-white"
+                >
+                  {name}
+                </button>
+              </Tooltip.Trigger>
+              <Tooltip.Portal>
+                <Tooltip.Content
+                  className="bg-slate-800 text-white text-xs py-1.5 px-3 rounded-lg shadow-xl border border-slate-700 z-[200]"
+                  sideOffset={5}
+                >
+                  Focus on {name}
+                  <Tooltip.Arrow className="fill-slate-800" />
+                </Tooltip.Content>
+              </Tooltip.Portal>
+            </Tooltip.Root>
+          );
+        })}
+      </div>
+      <div className="pt-3 border-t border-slate-700/50">
+        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-2">Keyboard</p>
+        <div className="flex flex-wrap gap-1">
+          {['1-9: Planets', '0: Unlock'].map(shortcut => (
+            <span key={shortcut} className="text-[10px] bg-slate-800 text-slate-400 px-2 py-1 rounded font-mono">
+              {shortcut}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// LEVELS TAB CONTENT
+// ============================================================================
+function LevelsContent({ currentLevelId, availableLevels, onLevelChange }) {
+  if (!availableLevels) return null;
+  
+  return (
+    <div className="space-y-2">
+      {Object.values(availableLevels).map(level => (
+        <button
+          key={level.id}
+          onClick={() => onLevelChange?.(level.id)}
+          className={cn(
+            "w-full p-3 rounded-lg text-left transition-all border",
+            currentLevelId === level.id
+              ? "bg-blue-500/20 border-blue-500/50 text-white"
+              : "bg-slate-800/50 border-slate-700/50 text-slate-300 hover:bg-slate-700/50 hover:border-slate-600"
+          )}
+        >
+          <div className="font-medium text-sm">{level.name}</div>
+          <div className="text-xs text-slate-400 mt-0.5">{level.description}</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================================
+// MAIN UNIFIED UI COMPONENT
+// ============================================================================
 export default function UnifiedUI({ 
   simulationMode,
   missionsProps,
@@ -12,236 +327,98 @@ export default function UnifiedUI({
   onCameraPreset,
   levelsProps
 }) {
-  // Persist activeTab in localStorage so it doesn't reset
-  // Start with default to avoid hydration mismatch
+  const [isOpen, setIsOpen] = useState(true);
   const [activeTab, setActiveTab] = useState('missions');
-  const [isExpanded, setIsExpanded] = useState(true);
-  const [isHydrated, setIsHydrated] = useState(false);
-
-  // Load from localStorage after mount to avoid hydration mismatch
-  useEffect(() => {
-    setIsHydrated(true);
-    const savedTab = localStorage.getItem('planetariumActiveTab');
-    if (savedTab) {
-      setActiveTab(savedTab);
-    }
-  }, []);
-
-  // Save activeTab to localStorage whenever it changes
-  useEffect(() => {
-    if (isHydrated) {
-      localStorage.setItem('planetariumActiveTab', activeTab);
-    }
-  }, [activeTab, isHydrated]);
-
-  // Lift probe launcher state to persist across tab switches
-  // Start with defaults to avoid hydration mismatch
-  const [probeLauncherState, setProbeLauncherState] = useState({
-    speed: 0.01,
-    launchAngle: { azimuth: 0, elevation: 0 },
-    isLaunching: false
-  });
-
-  // Load probe launcher state from localStorage after mount
-  useEffect(() => {
-    if (isHydrated) {
-      const saved = localStorage.getItem('probeLauncherState');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          setProbeLauncherState(parsed);
-        } catch (e) {
-          // Invalid JSON, keep defaults
-        }
-      }
-    }
-  }, [isHydrated]);
-
-  // Save probe launcher state to localStorage
-  useEffect(() => {
-    if (isHydrated) {
-      localStorage.setItem('probeLauncherState', JSON.stringify(probeLauncherState));
-    }
-  }, [probeLauncherState, isHydrated]);
-
-  // Lift missions state to persist across tab switches
-  // Start with null to avoid hydration mismatch
-  const [missionsState, setMissionsState] = useState(null);
-
-  // Load missions state from localStorage after mount
-  useEffect(() => {
-    if (isHydrated) {
-      const saved = localStorage.getItem('missionsState');
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          setMissionsState(parsed);
-        } catch (e) {
-          // Invalid JSON, keep null
-        }
-      }
-    }
-  }, [isHydrated]);
-
-  // Save missions state to localStorage
-  useEffect(() => {
-    if (isHydrated && missionsState) {
-      localStorage.setItem('missionsState', JSON.stringify(missionsState));
-    }
-  }, [missionsState, isHydrated]);
 
   const tabs = [
     { id: 'missions', label: 'Missions', icon: '🎯' },
-    { id: 'probe', label: 'Probe Launcher', icon: '🚀' },
+    { id: 'probe', label: 'Launch', icon: '🚀' },
     { id: 'camera', label: 'Camera', icon: '📷' },
     { id: 'levels', label: 'Levels', icon: '🌌' }
   ];
 
   return (
-    <div className={`fixed bg-gradient-to-br from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl text-white rounded-lg shadow-2xl border border-slate-700/50 z-20 transition-all duration-300
-      sm:top-4 sm:left-4 sm:bottom-auto
-      bottom-20 left-2 right-2
-      ${
-      isExpanded ? 'sm:w-72 sm:right-auto w-auto' : 'w-10 right-auto left-2'
-    }`}>
-      {/* Header with collapse button */}
-      <div className="flex items-center justify-between p-2.5 border-b border-slate-700/50 bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-600/10">
-        {isExpanded && (
-          <h2 className="text-sm font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">Controls</h2>
-        )}
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="p-1 hover:bg-slate-700/50 rounded-lg transition-all duration-200"
-          title={isExpanded ? 'Collapse' : 'Expand'}
-        >
-          <svg 
-            xmlns="http://www.w3.org/2000/svg" 
-            fill="none" 
-            stroke="currentColor" 
-            strokeWidth="2" 
-            viewBox="0 0 24 24" 
-            className={`w-4 h-4 transition-transform ${isExpanded ? '' : 'rotate-180'}`}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-      </div>
-
-      {isExpanded && (
-        <>
-          {/* Tab Navigation */}
-          <div className="flex border-b border-slate-700/50 overflow-x-auto">
-            {tabs.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 px-2 py-2 sm:py-1.5 text-xs font-semibold transition-all duration-200 whitespace-nowrap min-w-0 ${
-                  activeTab === tab.id
-                    ? 'bg-slate-800/50 text-white border-b-2 border-blue-500'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800/30 active:bg-slate-700/50'
-                }`}
-              >
-                <span className="mr-1">{tab.icon}</span>
-                <span className="hidden xs:inline sm:inline">{tab.label}</span>
+    <Tooltip.Provider delayDuration={200}>
+      <div className="fixed top-4 left-4 z-[100] w-72 max-w-[calc(100vw-2rem)]">
+        <Collapsible.Root open={isOpen} onOpenChange={setIsOpen}>
+          <div className="bg-slate-900/95 backdrop-blur-xl rounded-xl border border-slate-700/50 shadow-2xl overflow-hidden">
+            {/* Header */}
+            <Collapsible.Trigger asChild>
+              <button className="w-full flex items-center justify-between p-3 hover:bg-slate-800/50 transition-colors">
+                <span className="font-semibold text-sm text-white">Controls</span>
+                <svg 
+                  className={cn("w-4 h-4 text-slate-400 transition-transform duration-200", isOpen && "rotate-180")}
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
               </button>
-            ))}
-          </div>
+            </Collapsible.Trigger>
 
-          {/* Tab Content */}
-          <div className="max-h-[40vh] sm:max-h-[calc(100vh-10rem)] overflow-y-auto custom-scrollbar">
-            {/* Keep components mounted but hidden to preserve state */}
-            <div className={activeTab === 'missions' ? 'block' : 'hidden'}>
-              <div className="p-3">
-                <MissionObjectives 
-                  {...missionsProps} 
-                  missionsState={missionsState}
-                  setMissionsState={setMissionsState}
-                />
-              </div>
-            </div>
+            <Collapsible.Content className="data-[state=open]:animate-slideDown data-[state=closed]:animate-slideUp">
+              <Tabs.Root value={activeTab} onValueChange={setActiveTab}>
+                {/* Tab List */}
+                <Tabs.List className="flex border-t border-b border-slate-700/50 bg-slate-800/30">
+                  {tabs.map(tab => (
+                    <Tooltip.Root key={tab.id}>
+                      <Tooltip.Trigger asChild>
+                        <Tabs.Trigger
+                          value={tab.id}
+                          className={cn(
+                            "flex-1 py-2.5 text-center transition-all relative",
+                            "text-slate-400 hover:text-white hover:bg-slate-800/50",
+                            "data-[state=active]:text-white data-[state=active]:bg-slate-800/70",
+                            "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset"
+                          )}
+                        >
+                          <span className="text-base">{tab.icon}</span>
+                          <div 
+                            className={cn(
+                              "absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 transition-transform duration-200",
+                              activeTab === tab.id ? "scale-x-100" : "scale-x-0"
+                            )} 
+                          />
+                        </Tabs.Trigger>
+                      </Tooltip.Trigger>
+                      <Tooltip.Portal>
+                        <Tooltip.Content
+                          className="bg-slate-800 text-white text-xs py-1 px-2 rounded shadow-xl border border-slate-700 z-[200]"
+                          sideOffset={5}
+                        >
+                          {tab.label}
+                          <Tooltip.Arrow className="fill-slate-800" />
+                        </Tooltip.Content>
+                      </Tooltip.Portal>
+                    </Tooltip.Root>
+                  ))}
+                </Tabs.List>
 
-            <div className={activeTab === 'probe' ? 'block' : 'hidden'}>
-              <div className="p-3">
-                <ProbeLauncher 
-                  {...probeLauncherProps}
-                  probeLauncherState={probeLauncherState}
-                  setProbeLauncherState={setProbeLauncherState}
-                />
-              </div>
-            </div>
-
-            {activeTab === 'camera' && (
-              <div className="p-3 space-y-3">
-                <h3 className="text-xs font-semibold mb-2 text-slate-400 uppercase tracking-wider">Camera Presets</h3>
-                <div className="grid grid-cols-3 sm:grid-cols-2 gap-1.5">
-                  {['Sun', 'Mercury', 'Venus', 'Earth', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune'].map((name) => {
-                    const body = cameraPresets.find(b => b && b.name === name);
-                    if (!body) return null;
-                    return (
-                      <button
-                        key={name}
-                        onClick={() => onCameraPreset(name)}
-                        className="px-2 py-2 sm:py-1.5 text-xs bg-slate-800/50 hover:bg-slate-700/50 active:bg-slate-600/50 rounded-lg transition-all duration-200 border border-slate-700/30 hover:border-blue-500/50 font-medium touch-manipulation"
-                      >
-                        {name}
-                      </button>
-                    );
-                  })}
+                {/* Tab Content */}
+                <div className="p-3 max-h-[50vh] overflow-y-auto custom-scrollbar">
+                  <Tabs.Content value="missions" className="focus:outline-none">
+                    <MissionsContent {...missionsProps} />
+                  </Tabs.Content>
+                  
+                  <Tabs.Content value="probe" className="focus:outline-none">
+                    <ProbeLauncherContent {...probeLauncherProps} />
+                  </Tabs.Content>
+                  
+                  <Tabs.Content value="camera" className="focus:outline-none">
+                    <CameraContent cameraPresets={cameraPresets} onCameraPreset={onCameraPreset} />
+                  </Tabs.Content>
+                  
+                  <Tabs.Content value="levels" className="focus:outline-none">
+                    <LevelsContent {...levelsProps} />
+                  </Tabs.Content>
                 </div>
-                <div className="mt-3 pt-3 border-t border-slate-700/50">
-                  <p className="text-[10px] text-slate-400 mb-1.5 font-semibold uppercase tracking-wider">Keyboard Shortcuts</p>
-                  <ul className="text-[10px] text-slate-300 space-y-0.5 font-mono">
-                    <li><span className="text-blue-400">1-9:</span> Planets</li>
-                    <li><span className="text-blue-400">0:</span> Unlock</li>
-                  </ul>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'levels' && (
-              <div className="p-3 space-y-3">
-                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Select Simulation</h3>
-                {levelsProps && Object.values(levelsProps.availableLevels).map(level => (
-                  <button
-                    key={level.id}
-                    onClick={() => levelsProps.onLevelChange(level.id)}
-                    className={`w-full p-3 rounded-lg text-left transition-all duration-200 border ${
-                      levelsProps.currentLevelId === level.id
-                        ? 'bg-blue-600/20 border-blue-500/50 text-white'
-                        : 'bg-slate-800/50 border-slate-700/50 text-slate-300 hover:bg-slate-700/50 hover:border-slate-600'
-                    }`}
-                  >
-                    <div className="font-bold text-sm mb-1">{level.name}</div>
-                    <div className="text-xs text-slate-400">{level.description}</div>
-                  </button>
-                ))}
-              </div>
-            )}
+              </Tabs.Root>
+            </Collapsible.Content>
           </div>
-        </>
-      )}
-
-      {/* Collapsed state - show icons only */}
-      {!isExpanded && (
-        <div className="py-1.5">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => {
-                setIsExpanded(true);
-                setActiveTab(tab.id);
-              }}
-              className={`w-full p-2 hover:bg-slate-700/50 rounded-lg transition-all duration-200 ${
-                activeTab === tab.id ? 'bg-slate-800/50' : ''
-              }`}
-              title={tab.label}
-            >
-              <span className="text-lg">{tab.icon}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+        </Collapsible.Root>
+      </div>
+    </Tooltip.Provider>
   );
 }
 

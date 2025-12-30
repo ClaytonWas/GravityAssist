@@ -5,11 +5,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Star, Planet } from '@/app/planetarium/HeavenlyBodies';
 import { Probe } from '@/app/planetarium/core/Probe';
-import ProbeLauncher from '@/app/planetarium/components/ProbeLauncher';
 import PlanetLabels from '@/app/planetarium/components/PlanetLabels';
-import MissionObjectives from '@/app/planetarium/components/MissionObjectives';
 import UnifiedUI from '@/app/planetarium/components/UnifiedUI';
-import CompositionChart from '@/app/planetarium/components/CompositionChart';
+import PlanetInfoPanel from '@/app/planetarium/components/PlanetInfoPanel';
 import { predictTrajectory, rk4Step } from '@/app/planetarium/core/physics';
 import { SOLAR_SYSTEM_DATA, getInitialOrbitalData, getVisualRadius } from '@/app/planetarium/core/solarSystemData';
 import { LEVELS } from '@/app/planetarium/core/levels';
@@ -687,12 +685,36 @@ const PlanetariumScene = () => {
 
       raycaster.setFromCamera(mouse, camera);
 
-      const intersects = raycaster.intersectObjects([...bodyMeshesRef.current, ...probeMeshesRef.current]);
+      // Get all scene objects that could be clicked (we need to traverse LODs)
+      const clickableObjects = [];
+      bodyMeshesRef.current.forEach(lod => {
+        lod.traverse(child => {
+          if (child.isMesh) {
+            child.userData.parentLOD = lod;
+            clickableObjects.push(child);
+          }
+        });
+      });
+      probeMeshesRef.current.forEach(mesh => clickableObjects.push(mesh));
+
+      const intersects = raycaster.intersectObjects(clickableObjects);
 
       if (intersects.length > 0) {
         const clickedMesh = intersects[0].object;
+        
+        // Check if it's a body (LOD child)
+        if (clickedMesh.userData.parentLOD) {
+          const lodIndex = bodyMeshesRef.current.indexOf(clickedMesh.userData.parentLOD);
+          if (lodIndex !== -1) {
+            const clickedBody = bodiesRef.current[lodIndex];
+            setSelectedBody(clickedBody);
+            setIsInfoVisible(true);
+            return;
+          }
+        }
+        
+        // Direct LOD match (fallback)
         const bodyIndex = bodyMeshesRef.current.indexOf(clickedMesh);
-
         if (bodyIndex !== -1) {
           const clickedBody = bodiesRef.current[bodyIndex];
           setSelectedBody(clickedBody);
@@ -2429,480 +2451,20 @@ const PlanetariumScene = () => {
         />
       )}
 
-      {isClient && !isLoading && selectedBody && (
-        <div
-          className={`fixed bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-2xl
-              transform backdrop-blur-xl border-slate-700/50 flex flex-col
-              ${isInfoVisible ? 'translate-x-0 sm:translate-y-0' : 'translate-x-full sm:translate-y-0'}
-              ${isResizing ? '' : 'transition-transform duration-300 ease-in-out'}
-              /* Mobile: bottom sheet style */
-              sm:top-0 sm:right-0 sm:h-screen sm:border-l sm:rounded-none
-              top-auto bottom-0 left-0 right-0 h-[70vh] rounded-t-2xl border-t sm:border-t-0
-              `}
-          style={{
-            width: typeof window !== 'undefined' && window.innerWidth < 640 ? '100%' : `${panelWidth}px`,
-            background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 41, 59, 0.98) 50%, rgba(15, 23, 42, 0.98) 100%)',
-          }}
-        >
-          {/* Mobile drag indicator */}
-          <div className="sm:hidden flex justify-center py-2 flex-shrink-0">
-            <div className="w-12 h-1 bg-slate-600 rounded-full"></div>
-          </div>
-          
-          {/* Resize Handle - desktop only */}
-          <div
-            onMouseDown={handleResizeStart}
-            className={`hidden sm:block absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize transition-all z-50 group
-              ${isResizing ? 'bg-blue-500/80' : 'bg-transparent hover:bg-blue-500/40'}`}
-            style={{
-              cursor: 'ew-resize',
-            }}
-          >
-            {/* Visual indicator dots */}
-            <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 transition-opacity
-              ${isResizing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-              <div className="flex flex-col gap-1">
-                <div className="w-1 h-1 bg-blue-400 rounded-full"></div>
-                <div className="w-1 h-1 bg-blue-400 rounded-full"></div>
-                <div className="w-1 h-1 bg-blue-400 rounded-full"></div>
-              </div>
-            </div>
-          </div>
-          {/* Header with gradient accent */}
-          <div className="flex-shrink-0 bg-gradient-to-r from-blue-600/20 via-purple-600/20 to-pink-600/20 backdrop-blur-md border-b border-slate-700/50 px-4 py-3">
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-                  {selectedBody.name}
-                </h2>
-                {PLANET_INFO[selectedBody.name] && (
-                  <p className="text-xs text-slate-400 mt-0.5 font-medium">
-                    {PLANET_INFO[selectedBody.name].type}
-                  </p>
-                )}
-              </div>
-              <button
-                onClick={() => setIsInfoVisible(false)}
-                className="text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg p-1.5 transition-all duration-200 text-xl font-light"
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-3 space-y-3">
-
-          {PLANET_INFO[selectedBody.name] ? (
-            <>
-              {/* Description Card */}
-              <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50 backdrop-blur-sm">
-                <p className="text-slate-300 leading-relaxed text-xs">
-                  {PLANET_INFO[selectedBody.name].description}
-                </p>
-              </div>
-              
-              {/* Key Stats Grid */}
-              <div className="grid grid-cols-2 gap-2">
-                <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30 hover:border-blue-500/50 transition-colors">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Distance from Sun</div>
-                  <div className="text-sm font-bold text-blue-400">{PLANET_INFO[selectedBody.name].distance}</div>
-                </div>
-                <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30 hover:border-purple-500/50 transition-colors">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Orbital Period</div>
-                  <div className="text-sm font-bold text-purple-400">{PLANET_INFO[selectedBody.name].orbitalPeriod}</div>
-                </div>
-                <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30 hover:border-pink-500/50 transition-colors">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Day Length</div>
-                  <div className="text-sm font-bold text-pink-400">{PLANET_INFO[selectedBody.name].dayLength}</div>
-                </div>
-                <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30 hover:border-cyan-500/50 transition-colors">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Moons</div>
-                  <div className="text-sm font-bold text-cyan-400">{PLANET_INFO[selectedBody.name].moons}</div>
-                </div>
-              </div>
-
-              {/* Composition Chart Section */}
-              {(PLANET_INFO[selectedBody.name]?.composition || PLANET_INFO[selectedBody.name]?.coreComposition) && (
-                <div 
-                  ref={compositionChartRef}
-                  className="bg-gradient-to-br from-slate-800/70 via-slate-800/60 to-slate-900/70 rounded-xl p-5 border border-slate-700/60 backdrop-blur-md shadow-2xl relative overflow-hidden flex flex-col" 
-                  style={{ minHeight: '300px' }}
-                >
-                  {/* Subtle background gradient */}
-                  <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-purple-500/5 to-pink-500/5 pointer-events-none"></div>
-                  
-                  <div className="relative z-10 flex flex-col h-full">
-                    {/* Tabs */}
-                    {(() => {
-                      const planetInfo = PLANET_INFO[selectedBody.name];
-                      const hasAtmosphere = planetInfo?.composition;
-                      const hasCore = planetInfo?.coreComposition;
-                      const areSame = compositionsAreEqual(planetInfo?.composition, planetInfo?.coreComposition);
-                      const showTabs = hasAtmosphere && hasCore && !areSame;
-                      
-                      return (
-                        <div className="flex items-center gap-2 mb-4 flex-shrink-0">
-                          <div className="h-0.5 w-8 bg-gradient-to-r from-transparent via-blue-400 to-blue-400"></div>
-                          {showTabs ? (
-                            <div className="flex gap-2 flex-1">
-                              {/* Core tab first */}
-                              {hasCore && (
-                                <button
-                                  onClick={() => {
-                                    setCompositionTab('core');
-                                    setHoveredCompositionId(null);
-                                  }}
-                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-200 ${
-                                    compositionTab === 'core'
-                                      ? 'bg-gradient-to-r from-blue-500/30 via-purple-500/30 to-pink-500/30 text-white border border-blue-400/50'
-                                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/30 border border-transparent'
-                                  }`}
-                                >
-                                  Core
-                                </button>
-                              )}
-                              {/* Atmosphere tab second */}
-                              {hasAtmosphere && (
-                                <button
-                                  onClick={() => {
-                                    setCompositionTab('atmosphere');
-                                    setHoveredCompositionId(null);
-                                  }}
-                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all duration-200 ${
-                                    compositionTab === 'atmosphere'
-                                      ? 'bg-gradient-to-r from-blue-500/30 via-purple-500/30 to-pink-500/30 text-white border border-blue-400/50'
-                                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/30 border border-transparent'
-                                  }`}
-                                >
-                                  Atmosphere
-                                </button>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="flex-1">
-                              <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider bg-gradient-to-r from-blue-300 via-purple-300 to-pink-300 bg-clip-text text-transparent">
-                                {hasCore ? 'Core Composition' : 'Atmospheric Composition'}
-                              </h3>
-                            </div>
-                          )}
-                          <div className="h-0.5 flex-1 bg-gradient-to-r from-purple-400 via-pink-400 to-transparent"></div>
-                        </div>
-                      );
-                    })()}
-                    
-                    <div className={`flex items-center gap-5 flex-1 ${panelWidth >= 450 ? 'flex-row' : 'flex-col'}`}>
-                      {/* Chart */}
-                      <div 
-                        className={`relative flex items-center justify-center ${panelWidth >= 450 ? 'flex-1' : 'w-full'}`}
-                        style={{ 
-                          height: '100%',
-                          minHeight: '200px'
-                        }}
-                      >
-                        <CompositionChart 
-                          data={(() => {
-                            const planetInfo = PLANET_INFO[selectedBody.name];
-                            const areSame = compositionsAreEqual(planetInfo?.composition, planetInfo?.coreComposition);
-                            
-                            // If compositions are the same, prefer core, otherwise use selected tab
-                            if (areSame && planetInfo?.coreComposition) {
-                              return planetInfo.coreComposition;
-                            }
-                            
-                            return compositionTab === 'atmosphere' 
-                              ? planetInfo?.composition 
-                              : planetInfo?.coreComposition;
-                          })()}
-                          size={200}
-                          parentRef={compositionChartRef}
-                          onSegmentHover={(id) => setHoveredCompositionId(id)}
-                          onSegmentLeave={() => setHoveredCompositionId(null)}
-                        />
-                      </div>
-                      
-                      {/* Legend - only show if panel is wide enough, as sibling element */}
-                      {panelWidth >= 450 && (
-                        <div className="flex-shrink-0 space-y-2.5 min-w-0 flex flex-col justify-center" style={{ width: '200px' }}>
-                          {(() => {
-                            const planetInfo = PLANET_INFO[selectedBody.name];
-                            const areSame = compositionsAreEqual(planetInfo?.composition, planetInfo?.coreComposition);
-                            
-                            // If compositions are the same, prefer core, otherwise use selected tab
-                            const data = areSame && planetInfo?.coreComposition
-                              ? planetInfo.coreComposition
-                              : (compositionTab === 'atmosphere' 
-                                  ? planetInfo?.composition 
-                                  : planetInfo?.coreComposition);
-                            
-                            return data;
-                          })().map((item, index) => {
-                            const isHovered = hoveredCompositionId === item.id;
-                            return (
-                              <div 
-                                key={index}
-                                className={`flex items-center justify-between group rounded-lg px-3 py-2 transition-all duration-300 cursor-pointer border ${
-                                  isHovered 
-                                    ? 'bg-slate-700/40 border-slate-600/50' 
-                                    : 'border-transparent hover:bg-slate-700/40 hover:border-slate-600/50'
-                                }`}
-                                onMouseEnter={() => setHoveredCompositionId(item.id)}
-                                onMouseLeave={() => setHoveredCompositionId(null)}
-                              >
-                                <div className="flex items-center gap-3 flex-1 min-w-0">
-                                  <div 
-                                    className={`w-3.5 h-3.5 rounded-full flex-shrink-0 shadow-lg transition-all duration-300 ${
-                                      isHovered ? 'scale-125 shadow-xl' : 'group-hover:scale-125 group-hover:shadow-xl'
-                                    }`}
-                                    style={{ 
-                                      backgroundColor: item.color,
-                                      boxShadow: `0 0 12px ${item.color}60`
-                                    }}
-                                  ></div>
-                                  <span className={`text-xs font-semibold truncate transition-colors ${
-                                    isHovered ? 'text-white' : 'text-slate-200 group-hover:text-white'
-                                  }`}>
-                                    {item.label}
-                                  </span>
-                                </div>
-                                <span className={`text-xs font-bold ml-3 tabular-nums transition-colors flex-shrink-0 ${
-                                  isHovered ? 'text-white' : 'text-slate-100 group-hover:text-white'
-                                }`}>
-                                  {item.value.toFixed(2)}%
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Live Data Section */}
-              <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 rounded-lg p-3 border border-blue-500/20">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div>
-                  <h3 className="text-sm font-bold text-slate-200">Live Data</h3>
-                </div>
-                <div className="space-y-2">
-                  <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
-                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5 font-semibold">Speed</div>
-                    <div className="text-sm font-mono font-bold text-green-400">
-                      {selectedBodyLiveData ? selectedBodyLiveData.speed.toFixed(6) : '0.000000'} <span className="text-xs text-slate-400 font-normal">units/s</span>
-                    </div>
-                  </div>
-                  {selectedBodyLiveData && (
-                    <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 font-semibold">Position</div>
-                      <div className="grid grid-cols-3 gap-1.5 font-mono text-xs">
-                        <div>
-                          <div className="text-slate-400 text-[10px]">X</div>
-                          <div className="text-blue-400 font-semibold">{selectedBodyLiveData.position.x.toFixed(2)}</div>
-                        </div>
-                        <div>
-                          <div className="text-slate-400 text-[10px]">Y</div>
-                          <div className="text-purple-400 font-semibold">{selectedBodyLiveData.position.y.toFixed(2)}</div>
-                        </div>
-                        <div>
-                          <div className="text-slate-400 text-[10px]">Z</div>
-                          <div className="text-pink-400 font-semibold">{selectedBodyLiveData.position.z.toFixed(2)}</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {selectedBodyLiveData && selectedBodyLiveData.sidereelTime !== null && selectedBodyLiveData.sidereelTime !== 0 && !(selectedBody instanceof Probe) && (
-                    <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 font-semibold">Sidereal Rotation</div>
-                      <div className="space-y-1 text-[10px]">
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-400">Sidereal Time:</span>
-                          <span className="text-cyan-400 font-mono font-semibold">{selectedBodyLiveData.sidereelTime ? (Math.abs(selectedBodyLiveData.sidereelTime) / 86400).toFixed(2) : 'N/A'} days</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-400">Angular Velocity:</span>
-                          <span className="text-yellow-400 font-mono font-semibold">{selectedBodyLiveData.angularVelocity ? selectedBodyLiveData.angularVelocity.toFixed(8) : 'N/A'} rad/s</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-400">Current Rotation:</span>
-                          <span className="text-orange-400 font-mono font-semibold">{selectedBodyLiveData.currentRotation !== null ? (selectedBodyLiveData.currentRotation.toFixed(4)) : 'N/A'} rad</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-            </>
-          ) : (
-            <>
-              {/* Basic Info Cards - Only show for planets, not probes */}
-              {!(selectedBody instanceof Probe) && (
-                <div className="grid grid-cols-1 gap-2">
-                  <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30">
-                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Radius</div>
-                    <div className="text-sm font-bold text-blue-400 font-mono">{selectedBody.radius.toFixed(2)} <span className="text-xs text-slate-400 font-normal">units</span></div>
-                  </div>
-                  <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30">
-                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Mass</div>
-                    <div className="text-sm font-bold text-purple-400 font-mono">{selectedBody.mass.toFixed(2)} <span className="text-xs text-slate-400 font-normal">Earth masses</span></div>
-                  </div>
-                  {selectedBody.sidereelTime && (
-                    <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30">
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Rotation Period</div>
-                      <div className="text-sm font-bold text-pink-400 font-mono">{(Math.abs(selectedBody.sidereelTime) / 86400).toFixed(1)} <span className="text-xs text-slate-400 font-normal">days</span></div>
-                    </div>
-                  )}
-                </div>
-              )}
-              
-              {/* Live Data Section */}
-              <div className="bg-gradient-to-br from-blue-900/20 to-purple-900/20 rounded-lg p-3 border border-blue-500/20">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div>
-                  <h3 className="text-sm font-bold text-slate-200">Live Data</h3>
-                </div>
-                <div className="space-y-2">
-                  <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
-                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5 font-semibold">Speed</div>
-                    <div className="text-sm font-mono font-bold text-green-400">
-                      {selectedBodyLiveData ? selectedBodyLiveData.speed.toFixed(6) : (selectedBody.getSpeed ? selectedBody.getSpeed().toFixed(6) : '0.000000')} <span className="text-xs text-slate-400 font-normal">units/s</span>
-                    </div>
-                  </div>
-                  {selectedBodyLiveData && (
-                    <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 font-semibold">Position</div>
-                      <div className="grid grid-cols-3 gap-1.5 font-mono text-xs">
-                        <div>
-                          <div className="text-slate-400 text-[10px]">X</div>
-                          <div className="text-blue-400 font-semibold">{selectedBodyLiveData.position.x.toFixed(2)}</div>
-                        </div>
-                        <div>
-                          <div className="text-slate-400 text-[10px]">Y</div>
-                          <div className="text-purple-400 font-semibold">{selectedBodyLiveData.position.y.toFixed(2)}</div>
-                        </div>
-                        <div>
-                          <div className="text-slate-400 text-[10px]">Z</div>
-                          <div className="text-pink-400 font-semibold">{selectedBodyLiveData.position.z.toFixed(2)}</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {selectedBodyLiveData && selectedBodyLiveData.sidereelTime !== null && selectedBodyLiveData.sidereelTime !== 0 && !(selectedBody instanceof Probe) && (
-                    <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 font-semibold">Sidereal Rotation</div>
-                      <div className="space-y-1 text-[10px]">
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-400">Sidereal Time:</span>
-                          <span className="text-cyan-400 font-mono font-semibold">{selectedBodyLiveData.sidereelTime ? (Math.abs(selectedBodyLiveData.sidereelTime) / 86400).toFixed(2) : 'N/A'} days</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-400">Angular Velocity:</span>
-                          <span className="text-yellow-400 font-mono font-semibold">{selectedBodyLiveData.angularVelocity ? selectedBodyLiveData.angularVelocity.toFixed(8) : 'N/A'} rad/s</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-400">Current Rotation:</span>
-                          <span className="text-orange-400 font-mono font-semibold">{selectedBodyLiveData.currentRotation !== null ? (selectedBodyLiveData.currentRotation.toFixed(4)) : 'N/A'} rad</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {selectedBody instanceof Probe && (
-                <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50 space-y-2">
-                  <h3 className="text-sm font-bold mb-2 text-slate-200">Probe Information</h3>
-                  
-                  <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
-                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Status</div>
-                    <div className="flex items-center gap-2 mt-1.5">
-                      <div className={`w-1.5 h-1.5 rounded-full ${selectedBody.isActive ? 'bg-green-400 animate-pulse' : 'bg-red-400'}`}></div>
-                      <span className={`text-xs font-bold ${selectedBody.isActive ? 'text-green-400' : 'text-red-400'}`}>
-                        {selectedBody.isActive ? 'Active' : 'Inactive'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {selectedBodyLiveData && selectedBodyLiveData.probeStats && (
-                    <>
-                      <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
-                        <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Mission Time</div>
-                        <div className="text-sm font-mono font-bold text-cyan-400">
-                          {Math.floor(selectedBodyLiveData.probeStats.timeSinceLaunch / 3600)}h {Math.floor((selectedBodyLiveData.probeStats.timeSinceLaunch % 3600) / 60)}m {Math.floor(selectedBodyLiveData.probeStats.timeSinceLaunch % 60)}s
-                        </div>
-                      </div>
-
-                      <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
-                        <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Distance from Earth</div>
-                        <div className="text-sm font-mono font-bold text-blue-400">
-                          {selectedBodyLiveData.probeStats.distanceFromEarth.toFixed(2)} <span className="text-xs text-slate-400 font-normal">units</span>
-                        </div>
-                      </div>
-
-                      {selectedBodyLiveData.probeStats.closestPlanet && (
-                        <div className="bg-slate-900/50 rounded-lg p-2 border border-slate-700/30">
-                          <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1 font-semibold">Closest Planet</div>
-                          <div className="text-sm font-bold text-purple-400">
-                            {selectedBodyLiveData.probeStats.closestPlanet}
-                          </div>
-                          <div className="text-xs text-slate-400 mt-0.5">
-                            {selectedBodyLiveData.probeStats.closestDistance.toFixed(2)} units away
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex-shrink-0 space-y-2 px-4 pb-4 pt-2 border-t border-slate-700/50">
-            <button
-              onClick={() => {
-                // Use ID for probes, name for planets
-                const targetId = selectedBody instanceof Probe ? selectedBody.id : selectedBody.name;
-                setCameraTargetName(targetId);
-                // Camera will follow in animate loop
-              }}
-              className="w-full px-3 py-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 rounded-lg text-sm font-semibold text-white transition-all duration-200 shadow-lg hover:shadow-blue-500/50 transform hover:scale-[1.02]"
-            >
-              Focus on {selectedBody.name}
-            </button>
-            
-            {selectedBody.name !== 'Sun' && (
-              <button
-                onClick={handleToggleLighting}
-                className={`w-full px-3 py-2 rounded-lg text-sm font-semibold transition-all duration-200 border ${
-                  unlitBodies.has(selectedBody.name)
-                    ? 'bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 text-white border-yellow-500/50'
-                    : 'bg-slate-700/50 hover:bg-slate-700 text-slate-200 border-slate-600/50 hover:border-slate-500'
-                }`}
-              >
-                {unlitBodies.has(selectedBody.name) ? '☀️ Enable Lighting' : '🌙 Disable Lighting'}
-              </button>
-            )}
-            
-            <button
-              onClick={() => {
-                setCameraTargetName(null);
-                // Unlock camera
-              }}
-              className="w-full px-3 py-2 bg-slate-700/50 hover:bg-slate-700 rounded-lg text-sm font-semibold text-slate-200 transition-all duration-200 border border-slate-600/50 hover:border-slate-500"
-            >
-              Unlock Camera
-            </button>
-          </div>
-        </div>
+      {/* Planet Info Panel - Radix Dialog based */}
+      {isClient && !isLoading && (
+        <PlanetInfoPanel
+          selectedBody={selectedBody}
+          isOpen={isInfoVisible && selectedBody !== null}
+          onClose={() => setIsInfoVisible(false)}
+          panelWidth={panelWidth}
+          onWidthChange={setPanelWidth}
+        />
       )}
 
       {/* Bottom control bar */}
       {isClient && !isLoading && (
-      <div className="fixed bottom-2 sm:bottom-4 left-1/2 transform -translate-x-1/2 bg-gradient-to-br from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl text-white rounded-lg px-2 sm:px-3 py-2 flex gap-1 sm:gap-1.5 items-center shadow-2xl border border-slate-700/50 z-30 max-w-[95vw] overflow-x-auto">
+      <div className="fixed bottom-2 sm:bottom-4 left-1/2 transform -translate-x-1/2 bg-gradient-to-br from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl text-white rounded-lg px-2 sm:px-3 py-2 flex gap-1 sm:gap-1.5 items-center shadow-2xl border border-slate-700/50 z-[200] max-w-[95vw]">
         <button
           onClick={() => {
             setTimeScale(prev => Math.max(MIN_TIME_SCALE, prev - TIME_SCALE_STEP * 10));
@@ -2969,22 +2531,18 @@ const PlanetariumScene = () => {
           </svg>
         </button>
 
-        <div className="relative group mx-1 sm:mx-3 font-mono inline-block flex-shrink-0">
-          <div className="text-xs sm:text-sm text-slate-200 cursor-pointer font-semibold whitespace-nowrap">
+        <div className="relative group mx-1 sm:mx-3 font-mono inline-block flex-shrink-0" style={{ isolation: 'isolate' }}>
+          <div className="text-xs sm:text-sm text-slate-200 cursor-pointer font-semibold whitespace-nowrap py-1">
             <span className="hidden sm:inline">Speed: </span><span className="text-blue-400">{timeScale}</span>
           </div>
-
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-300 z-50 px-4 py-3 w-56 bg-slate-800/95 backdrop-blur-xl rounded-lg border border-slate-700/50 shadow-2xl pointer-events-auto">
+          <div className="fixed bottom-16 left-1/2 -translate-x-1/2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 px-4 py-3 w-56 bg-slate-800/95 backdrop-blur-xl rounded-lg border border-slate-700/50 shadow-2xl z-[300]">
             <input
               type="range"
               min={MIN_TIME_SCALE}
               max={MAX_TIME_SCALE}
               step={TIME_SCALE_STEP}
               value={timeScale}
-              onChange={e => {
-                const value = Number(e.target.value);
-                setTimeScale(Math.max(MIN_TIME_SCALE, Math.min(MAX_TIME_SCALE, value)));
-              }}
+              onChange={e => setTimeScale(Number(e.target.value))}
               className="w-full h-2 touch-manipulation"
             />
             <div className="flex justify-between text-xs text-slate-400 mt-1">
@@ -2998,14 +2556,13 @@ const PlanetariumScene = () => {
           onClick={() => setShowOrbits(!showOrbits)}
           className={`px-2 sm:px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200 border touch-manipulation flex-shrink-0 ${
             showOrbits 
-              ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 border-green-500/50' 
-              : 'bg-slate-700/50 hover:bg-slate-600/50 border-slate-600/50'
+              ? 'bg-gradient-to-r from-green-600 to-emerald-600 border-green-500/50' 
+              : 'bg-slate-700/50 border-slate-600/50'
           }`}
           title="Toggle Orbit Paths"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-5 h-5">
             <circle cx="12" cy="12" r="10" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2" />
           </svg>
         </button>
 
@@ -3014,8 +2571,8 @@ const PlanetariumScene = () => {
             onClick={() => setShowLabels(!showLabels)}
             className={`px-2 sm:px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200 border touch-manipulation flex-shrink-0 ${
               showLabels 
-                ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 border-green-500/50' 
-                : 'bg-slate-700/50 hover:bg-slate-600/50 border-slate-600/50'
+                ? 'bg-gradient-to-r from-green-600 to-emerald-600 border-green-500/50' 
+                : 'bg-slate-700/50 border-slate-600/50'
             }`}
             title="Toggle Planet Labels"
           >
@@ -3029,8 +2586,8 @@ const PlanetariumScene = () => {
           onClick={() => setDebugMode(!debugMode)}
           className={`hidden sm:block px-2 sm:px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200 border touch-manipulation flex-shrink-0 ${
             debugMode 
-              ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 border-amber-500/50' 
-              : 'bg-slate-700/50 hover:bg-slate-600/50 border-slate-600/50 text-slate-400 hover:text-white'
+              ? 'bg-gradient-to-r from-amber-600 to-orange-600 border-amber-500/50' 
+              : 'bg-slate-700/50 border-slate-600/50 text-slate-400'
           }`}
           title="Toggle Debug Mode"
         >
@@ -3041,13 +2598,11 @@ const PlanetariumScene = () => {
 
         <button
           onClick={() => setIsInfoPopupVisible(true)}
-          className="px-2 sm:px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 active:bg-slate-600/50 transition-all duration-200 border border-slate-600/50 hover:border-slate-500 touch-manipulation flex-shrink-0"
+          className="px-2 sm:px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all border border-slate-600/50 touch-manipulation flex-shrink-0"
           title="Controls Information"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor"
-            strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
-            <path strokeLinecap="round" strokeLinejoin="round"
-              d="M13 16h-1v-4h-1m1-4h.01M12 18a6 6 0 100-12 6 6 0 000 12z" />
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 18a6 6 0 100-12 6 6 0 000 12z" />
           </svg>
         </button>
       </div>
@@ -3197,4 +2752,3 @@ const PlanetariumScene = () => {
 };
 
 export default PlanetariumScene;
-

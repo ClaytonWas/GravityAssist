@@ -103,13 +103,13 @@ export default function ProbeLauncher({
   if (!earth) return null;
 
   return (
-    <div className="w-full">
-      <h3 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4">Probe Launcher</h3>
+    <div className="w-full relative">
+      <h3 className="text-base font-bold mb-3">Probe Launcher</h3>
       
-      <div className="space-y-3 sm:space-y-4">
-        <div>
-          <label className="block text-xs sm:text-sm mb-2">
-            Launch Speed: {speed.toFixed(6)}
+      <div className="space-y-4">
+        <div className="relative">
+          <label className="block text-xs text-slate-300 mb-1.5">
+            Launch Speed: <span className="text-blue-400 font-mono">{speed.toFixed(4)}</span>
           </label>
           <input
             type="range"
@@ -118,13 +118,13 @@ export default function ProbeLauncher({
             step="0.001"
             value={speed}
             onChange={(e) => setSpeed(parseFloat(e.target.value))}
-            className="w-full h-2 touch-manipulation"
+            className="w-full h-2 touch-manipulation cursor-pointer"
           />
         </div>
 
-        <div>
-          <label className="block text-xs sm:text-sm mb-2">
-            Azimuth (degrees): {launchAngle.azimuth.toFixed(1)}
+        <div className="relative">
+          <label className="block text-xs text-slate-300 mb-1.5">
+            Azimuth: <span className="text-blue-400 font-mono">{launchAngle.azimuth.toFixed(0)}°</span>
           </label>
           <input
             type="range"
@@ -133,13 +133,13 @@ export default function ProbeLauncher({
             step="1"
             value={launchAngle.azimuth}
             onChange={(e) => setLaunchAngle({ ...launchAngle, azimuth: parseFloat(e.target.value) })}
-            className="w-full h-2 touch-manipulation"
+            className="w-full h-2 touch-manipulation cursor-pointer"
           />
         </div>
 
-        <div>
-          <label className="block text-xs sm:text-sm mb-2">
-            Elevation (degrees): {launchAngle.elevation.toFixed(1)}
+        <div className="relative">
+          <label className="block text-xs text-slate-300 mb-1.5">
+            Elevation: <span className="text-blue-400 font-mono">{launchAngle.elevation.toFixed(0)}°</span>
           </label>
           <input
             type="range"
@@ -148,17 +148,17 @@ export default function ProbeLauncher({
             step="1"
             value={launchAngle.elevation}
             onChange={(e) => setLaunchAngle({ ...launchAngle, elevation: parseFloat(e.target.value) })}
-            className="w-full h-2 touch-manipulation"
+            className="w-full h-2 touch-manipulation cursor-pointer"
           />
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 pt-2">
           <button
             onClick={() => setIsLaunching(!isLaunching)}
-            className={`flex-1 px-3 sm:px-4 py-2.5 sm:py-2 rounded text-sm font-medium touch-manipulation active:scale-95 transition-transform ${
+            className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold touch-manipulation active:scale-95 transition-all ${
               isLaunching 
-                ? 'bg-yellow-600 hover:bg-yellow-700 active:bg-yellow-800' 
-                : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800'
+                ? 'bg-yellow-600 hover:bg-yellow-500' 
+                : 'bg-blue-600 hover:bg-blue-500'
             }`}
           >
             {isLaunching ? 'Cancel' : 'Prepare Launch'}
@@ -167,17 +167,17 @@ export default function ProbeLauncher({
           {isLaunching && (
             <button
               onClick={handleLaunch}
-              className="flex-1 px-3 sm:px-4 py-2.5 sm:py-2 rounded bg-green-600 hover:bg-green-700 active:bg-green-800 text-sm font-medium touch-manipulation active:scale-95 transition-transform"
+              className="flex-1 px-3 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-xs font-semibold touch-manipulation active:scale-95 transition-all"
             >
-              Launch Probe
+              🚀 Launch
             </button>
           )}
         </div>
 
         {isLaunching && (
-          <div className="text-xs text-gray-400 mt-2">
-            Preview trajectory is shown in orange. Adjust parameters to plan your mission.
-          </div>
+          <p className="text-[10px] text-slate-400 mt-2">
+            Orange trajectory preview shown. Adjust to plan mission.
+          </p>
         )}
       </div>
     </div>

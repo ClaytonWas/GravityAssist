@@ -96,39 +96,39 @@ export default function MissionObjectives({ probes, bodies, missionsState, setMi
 
   return (
     <div className="w-full">
-      <div className="mb-3 sm:mb-4">
-        <h3 className="text-base sm:text-lg font-bold">
-          Missions ({completedCount}/{totalCount})
+      <div className="mb-3">
+        <h3 className="text-base font-bold">
+          Missions <span className="text-slate-400 font-normal text-sm">({completedCount}/{totalCount})</span>
         </h3>
       </div>
       
-      <div className="space-y-2 sm:space-y-3">
+      <div className="space-y-2">
         {missions.map(mission => (
           <div 
             key={mission.id}
-            className={`p-2.5 sm:p-3 rounded border-2 touch-manipulation ${
+            className={`p-2.5 rounded-lg border touch-manipulation ${
               mission.status === 'completed' 
-                ? 'border-green-500 bg-green-900 bg-opacity-30' 
+                ? 'border-green-500/50 bg-green-900/20' 
                 : mission.status === 'in-progress'
-                ? 'border-yellow-500 bg-yellow-900 bg-opacity-30'
-                : 'border-gray-600 bg-gray-800 bg-opacity-30'
+                ? 'border-yellow-500/50 bg-yellow-900/20'
+                : 'border-slate-700/50 bg-slate-800/30'
             }`}
           >
-            <div className="flex items-start justify-between">
-              <div className="flex-1 min-w-0">
-                <h4 className="font-semibold text-xs sm:text-sm">{mission.title}</h4>
-                <p className="text-[10px] sm:text-xs text-gray-300 mt-1 line-clamp-2">{mission.description}</p>
-              </div>
-              <div className="ml-2">
+            <div className="flex items-start gap-2">
+              <div className="flex-shrink-0 mt-0.5">
                 {mission.status === 'completed' && (
-                  <span className="text-green-400 text-xl">✓</span>
+                  <span className="text-green-400 text-base">✓</span>
                 )}
                 {mission.status === 'in-progress' && (
-                  <span className="text-yellow-400 text-xl animate-pulse">⟳</span>
+                  <span className="text-yellow-400 text-base animate-pulse">⟳</span>
                 )}
                 {mission.status === 'pending' && (
-                  <span className="text-gray-400 text-xl">○</span>
+                  <span className="text-slate-500 text-base">○</span>
                 )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h4 className="font-semibold text-xs">{mission.title}</h4>
+                <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">{mission.description}</p>
               </div>
             </div>
           </div>
