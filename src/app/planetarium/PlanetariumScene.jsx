@@ -105,35 +105,82 @@ function createOrbitLines(orbitLines, orbitPaths, bodies, scene, simulationMode 
   // Get non-Sun body names for color mapping
   const nonSunBodies = bodies.filter(b => b.name !== 'Sun');
 
-  orbitPaths.forEach((path, index) => {
-    if (path.length < 2) return;
+  // Remove extra orbit lines if we have more lines than paths (e.g., switching from Solar System to Three Body)
+  while (orbitLines.length > orbitPaths.length) {
+    const line = orbitLines.pop();
+    if (line) {
+      scene.remove(line);
+      line.geometry?.dispose();
+      line.material?.dispose();
+    }
+  }
 
+  orbitPaths.forEach((path, index) => {
     const bodyName = nonSunBodies[index]?.name || '';
     const color = planetColors[bodyName] || 0xFFFFFF;
+
+    // Handle empty or too-small paths by hiding/removing the line
+    if (!path || path.length < 2) {
+      const existingLine = orbitLines[index];
+      if (existingLine) {
+        existingLine.visible = false;
+      }
+      return;
+    }
 
     const points = [];
     path.forEach(pos => {
       points.push(pos.x, pos.y, pos.z);
     });
 
-    if (orbitLines[index]) {
-      // Update existing line geometry
-      const geometry = orbitLines[index].geometry;
+    // Check if existing line is valid (has geometry with position attribute)
+    const existingLine = orbitLines[index];
+    // A line is valid if it exists and has a geometry with position attribute
+    // We trust that if it's in our array and has geometry, it's usable
+    const lineIsValid = existingLine && 
+                        existingLine.geometry && 
+                        existingLine.geometry.getAttribute('position');
+    
+    if (lineIsValid) {
+      // Ensure line is in the scene (it might have been removed)
+      if (existingLine.parent !== scene) {
+        scene.add(existingLine);
+      }
+      // Update existing line geometry in place
+      const geometry = existingLine.geometry;
       const posAttr = geometry.getAttribute('position');
       
-      // Only update if same number of points, otherwise recreate
+      // Check if we can update in place or need to recreate the buffer
       if (posAttr && posAttr.count === path.length) {
+        // Same number of points - update in place (fast path)
         for (let i = 0; i < path.length; i++) {
           posAttr.setXYZ(i, path[i].x, path[i].y, path[i].z);
         }
         posAttr.needsUpdate = true;
       } else {
-        geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
-        geometry.attributes.position.needsUpdate = true;
+        // Different number of points - recreate buffer
+        const newPosAttr = new THREE.Float32BufferAttribute(points, 3);
+        geometry.setAttribute('position', newPosAttr);
+        
+        // Also update alpha attribute for gradient
+        const alphas = new Float32Array(path.length);
+        for (let i = 0; i < path.length; i++) {
+          alphas[i] = 0.7 - (i / path.length) * 0.55;
+        }
+        geometry.setAttribute('alpha', new THREE.BufferAttribute(alphas, 1));
       }
+      
       // Update color in case body changed
-      orbitLines[index].material.color.setHex(color);
+      existingLine.material.color.setHex(color);
+      existingLine.visible = true;
     } else {
+      // Need to create a new line - first clean up any invalid existing line
+      if (existingLine) {
+        scene.remove(existingLine);
+        if (existingLine.geometry) existingLine.geometry.dispose();
+        if (existingLine.material) existingLine.material.dispose();
+      }
+
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
 
@@ -153,15 +200,15 @@ function createOrbitLines(orbitLines, orbitPaths, bodies, scene, simulationMode 
       });
 
       const line = new THREE.Line(geometry, material);
-      orbitLines.push(line);
+      orbitLines[index] = line;
       scene.add(line);
     }
   });
   return orbitLines;
 }
 
-// Generate a smooth orbit path for a body orbiting a central mass
-// Generates a circle in the plane defined by the body's current position
+// Generate orbit path as a circle in the orbital plane
+// Simple and reliable - works for all levels
 function generateOrbitPath(body, centralBody, G, numPoints = 120) {
   const points = [];
   
@@ -170,37 +217,22 @@ function generateOrbitPath(body, centralBody, G, numPoints = 120) {
   const dy = body.position.y - centralBody.position.y;
   const dz = body.position.z - centralBody.position.z;
   
-  // Calculate orbital radius (3D distance)
+  // Calculate orbital radius (current distance)
   const r = Math.sqrt(dx * dx + dy * dy + dz * dz);
   if (r < 0.001) return points;
   
-  // For bodies in 3D space with inclinations, we need to:
-  // 1. Find the orbital plane normal (approximate from position and velocity)
-  // 2. Generate a circle in that plane
-  
-  // If body has velocity, use it to determine the orbital plane
+  // Get velocity to determine orbital plane
   const vx = body.velocity?.x || 0;
   const vy = body.velocity?.y || 0;
   const vz = body.velocity?.z || 0;
   const vMag = Math.sqrt(vx * vx + vy * vy + vz * vz);
   
-  // Position vector (normalized)
-  const px = dx / r;
-  const py = dy / r;
-  const pz = dz / r;
-  
-  // If we have velocity, compute orbital plane normal via cross product
-  // Normal = position × velocity (angular momentum direction)
+  // Calculate orbital plane normal from angular momentum: L = r × v
   let nx, ny, nz;
   if (vMag > 0.001) {
-    const vnx = vx / vMag;
-    const vny = vy / vMag;
-    const vnz = vz / vMag;
-    
-    // Cross product: p × v
-    nx = py * vnz - pz * vny;
-    ny = pz * vnx - px * vnz;
-    nz = px * vny - py * vnx;
+    nx = dy * vz - dz * vy;
+    ny = dz * vx - dx * vz;
+    nz = dx * vy - dy * vx;
     
     const nMag = Math.sqrt(nx * nx + ny * ny + nz * nz);
     if (nMag > 0.001) {
@@ -208,30 +240,30 @@ function generateOrbitPath(body, centralBody, G, numPoints = 120) {
       ny /= nMag;
       nz /= nMag;
     } else {
-      // Fallback: use Y-up (XZ plane)
       nx = 0; ny = 1; nz = 0;
     }
   } else {
-    // No velocity, assume XZ plane (Y-up)
     nx = 0; ny = 1; nz = 0;
   }
   
-  // Create two perpendicular vectors in the orbital plane
-  // First basis vector: use cross product with a reference vector
-  let refX = 1, refY = 0, refZ = 0;
-  if (Math.abs(nx) > 0.9) {
-    // Normal is nearly parallel to X, use Z as reference
-    refX = 0; refY = 0; refZ = 1;
+  // Create basis vectors in the orbital plane
+  // u = some vector perpendicular to n
+  let ux, uy, uz;
+  if (Math.abs(ny) < 0.9) {
+    // Cross with Y axis
+    ux = nz;
+    uy = 0;
+    uz = -nx;
+  } else {
+    // Cross with X axis
+    ux = 0;
+    uy = -nz;
+    uz = ny;
   }
-  
-  // u = normal × reference (first basis vector)
-  let ux = ny * refZ - nz * refY;
-  let uy = nz * refX - nx * refZ;
-  let uz = nx * refY - ny * refX;
   const uMag = Math.sqrt(ux * ux + uy * uy + uz * uz);
   ux /= uMag; uy /= uMag; uz /= uMag;
   
-  // v = normal × u (second basis vector)
+  // v = n × u
   const vvx = ny * uz - nz * uy;
   const vvy = nz * ux - nx * uz;
   const vvz = nx * uy - ny * ux;
@@ -242,7 +274,6 @@ function generateOrbitPath(body, centralBody, G, numPoints = 120) {
     const cosA = Math.cos(angle);
     const sinA = Math.sin(angle);
     
-    // Point on circle = center + r * (cos(a) * u + sin(a) * v)
     points.push({
       x: centralBody.position.x + r * (cosA * ux + sinA * vvx),
       y: centralBody.position.y + r * (cosA * uy + sinA * vvy),
@@ -1520,10 +1551,70 @@ const PlanetariumScene = () => {
     };
     
     // Calculate and display initial orbit paths
-    setTimeout(() => {
+    // Use shorter delay for chaotic systems since they need immediate visual feedback
+    const currentLevelForInit = LEVELS[currentLevelId] || LEVELS.SOLAR_SYSTEM;
+    const isChaoticInit = currentLevelForInit.simulationType === 'threeBody' || currentLevelForInit.simulationType === 'nBody';
+    const initDelay = isChaoticInit ? 100 : 500;
+    
+    // Flag to track if orbits have been initialized
+    let orbitsInitialized = false;
+    
+    const initializeOrbits = () => {
+      if (!isMounted || orbitsInitialized) return;
+      orbitsInitialized = true;
+      
+      // Clear any existing orbit lines first to ensure clean slate
+      orbitLinesRef.current.forEach((line) => {
+        if (line && line.parent) {
+          line.parent.remove(line);
+        }
+        if (line) {
+          if (line.geometry) line.geometry.dispose();
+          if (line.material) line.material.dispose();
+        }
+      });
+      orbitLinesRef.current = [];
+      
+      // Calculate orbit paths
       const initialOrbitPaths = calculateOrbitPaths();
-      orbitLinesRef.current = createOrbitLines([], initialOrbitPaths, bodiesRef.current, scene);
-    }, 500); // Delay to ensure bodies are initialized
+      
+      // Create orbit lines for each path
+      initialOrbitPaths.forEach((path, index) => {
+        if (!path || path.length < 2) return;
+        
+        const nonSunBodies = bodiesRef.current.filter(b => b.name !== 'Sun');
+        const bodyName = nonSunBodies[index]?.name || '';
+        
+        const planetColors = {
+          'Mercury': 0xB5A7A7, 'Venus': 0xE6C87A, 'Earth': 0x6B93D6, 'Mars': 0xC1440E,
+          'Jupiter': 0xD8CA9D, 'Saturn': 0xF4D59E, 'Uranus': 0x4FD0E7, 'Neptune': 0x4B70DD,
+          'Body1': 0xFF4444, 'Body2': 0x44FF44, 'Body3': 0x4444FF,
+          'TimberHearth': 0x4A7C4E, 'BrittleHollow': 0x8B6B9E, 'GiantsDeep': 0x2E8B57,
+          'AshTwin': 0xD2691E, 'EmberTwin': 0xCD853F, 'DarkBramble': 0x4F6F6F, 'Interloper': 0xADD8E6
+        };
+        const color = planetColors[bodyName] || 0xFFFFFF;
+        
+        const points = [];
+        path.forEach(pos => points.push(pos.x, pos.y, pos.z));
+        
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+        
+        const material = new THREE.LineBasicMaterial({
+          color: color,
+          transparent: true,
+          opacity: 0.6,
+          linewidth: 2
+        });
+        
+        const line = new THREE.Line(geometry, material);
+        line.visible = showOrbitsRef.current;
+        scene.add(line);
+        orbitLinesRef.current.push(line);
+      });
+    };
+    
+    let orbitInitTimeout = setTimeout(initializeOrbits, initDelay);
 
     // Set initial camera position
     camera.position.z = 75;
@@ -1742,8 +1833,8 @@ const PlanetariumScene = () => {
           interpolateOrbitLines(orbitLinesRef.current, orbitTargetPathsRef.current, interpolationSpeed);
         }
         
-        // Recalculate orbits periodically
-        if (!orbitCalculationPendingRef.current) {
+        // Recalculate orbits periodically (only if orbits already exist)
+        if (!orbitCalculationPendingRef.current && orbitLinesRef.current.length > 0) {
           orbitPathRecalculateCounterRef.current++;
           if (orbitPathRecalculateCounterRef.current >= recalcInterval) {
             orbitPathRecalculateCounterRef.current = 0;
@@ -1754,12 +1845,19 @@ const PlanetariumScene = () => {
             if (isChaotic) {
               try {
                 const newOrbitPaths = calculateOrbitPaths();
-                if (orbitLinesRef.current.length === 0) {
-                  orbitLinesRef.current = createOrbitLines(orbitLinesRef.current, newOrbitPaths, bodiesRef.current, scene);
-                } else {
-                  // Direct update for chaotic - faster response
-                  orbitLinesRef.current = createOrbitLines(orbitLinesRef.current, newOrbitPaths, bodiesRef.current, scene);
-                }
+                // Update existing orbit lines directly
+                newOrbitPaths.forEach((path, index) => {
+                  const line = orbitLinesRef.current[index];
+                  if (line && line.geometry && path.length > 0) {
+                    const posAttr = line.geometry.getAttribute('position');
+                    if (posAttr && posAttr.count === path.length) {
+                      for (let i = 0; i < path.length; i++) {
+                        posAttr.setXYZ(i, path[i].x, path[i].y, path[i].z);
+                      }
+                      posAttr.needsUpdate = true;
+                    }
+                  }
+                });
               } catch (e) {
                 console.error('Orbit calculation error:', e);
               }
@@ -1767,14 +1865,12 @@ const PlanetariumScene = () => {
             } else {
               // Defer heavy orbit calculation for stable systems
               setTimeout(() => {
+                if (!isMounted) return;
                 try {
                   const newOrbitPaths = calculateOrbitPaths();
-                  if (orbitLinesRef.current.length === 0) {
-                    orbitLinesRef.current = createOrbitLines(orbitLinesRef.current, newOrbitPaths, bodiesRef.current, scene);
-                  } else {
-                    orbitTargetPathsRef.current = newOrbitPaths;
-                    orbitInterpolationRef.current = 0;
-                  }
+                  // Use smooth interpolation for existing lines
+                  orbitTargetPathsRef.current = newOrbitPaths;
+                  orbitInterpolationRef.current = 0;
                 } catch (e) {
                   console.error('Orbit calculation error:', e);
                 }
@@ -2054,6 +2150,23 @@ const PlanetariumScene = () => {
       });
       probeTrajectoryLinesRef.current.clear();
       probeTrajectoryPointsRef.current.clear();
+
+      // Clean up orbit lines - CRITICAL: clear the ref array so new lines are created on re-init
+      orbitLinesRef.current.forEach((line) => {
+        if (line) {
+          scene.remove(line);
+          line.geometry?.dispose();
+          line.material?.dispose();
+        }
+      });
+      orbitLinesRef.current = [];
+      orbitTargetPathsRef.current = [];
+      orbitInterpolationRef.current = 1;
+      orbitCalculationPendingRef.current = false;
+      orbitPathRecalculateCounterRef.current = 0;
+
+      // Clear the orbit initialization timeout
+      if (orbitInitTimeout) clearTimeout(orbitInitTimeout);
 
       // Clean up planetary rings
       planetRingsRef.current = [];

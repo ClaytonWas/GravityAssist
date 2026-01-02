@@ -17,7 +17,7 @@ export const LEVELS = {
     description: 'Stable Figure-8 Orbit',
     simulationType: 'threeBody',
     gConstant: 1e-6,
-    defaultTimeScale: 1000,
+    defaultTimeScale: 500,
     bodies: {
       Body1: {
         mass: 1e6,
@@ -49,7 +49,7 @@ export const LEVELS = {
     description: 'A cozy pocket solar system',
     simulationType: 'outerWilds',
     gConstant: 5e-5,  // Increased G for visible motion
-    defaultTimeScale: 1000,
+    defaultTimeScale: 100,
     // Outer Wilds-inspired system - orbital velocities: v = sqrt(G*M/r)
     // With G=5e-5, M_sun=1e7: v = sqrt(5e-5 * 1e7 / r) = sqrt(500/r)
     bodies: {
@@ -108,13 +108,15 @@ export const LEVELS = {
         position: { x: 800, y: 0, z: 0 },
         velocity: { x: 0, y: 0, z: 0.79 }
       },
-      // The Interloper - comet (r=80, v=sqrt(500/80)=2.5 but elliptical so lower)
+      // The Interloper - comet with highly elliptical orbit
+      // At perihelion (r=50): circular v ≈ 3.16, escape v ≈ 4.47
+      // Using v ≈ 4.0 gives a very elongated ellipse that shoots into deep space
       Interloper: {
         mass: 50,
         radius: 3,
         color: 0xADD8E6,
-        position: { x: 80, y: 10, z: 0 },
-        velocity: { x: 0, y: 0.3, z: 2.2 }
+        position: { x: 50, y: 8, z: 0 },
+        velocity: { x: 0, y: 0.4, z: 4.1 }
       }
     },
     cameraPosition: { x: 0, y: 600, z: 1000 }
