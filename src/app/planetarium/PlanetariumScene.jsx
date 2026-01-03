@@ -207,68 +207,163 @@ function createOrbitLines(orbitLines, orbitPaths, bodies, scene, simulationMode 
   return orbitLines;
 }
 
-// Generate orbit path as a circle in the orbital plane
-// Simple and reliable - works for all levels
+// Generate orbit path - uses circles for nearly-circular orbits, ellipses for eccentric ones
 function generateOrbitPath(body, centralBody, G, numPoints = 120) {
   const points = [];
   
-  // Get current position relative to central body
-  const dx = body.position.x - centralBody.position.x;
-  const dy = body.position.y - centralBody.position.y;
-  const dz = body.position.z - centralBody.position.z;
-  
-  // Calculate orbital radius (current distance)
-  const r = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  // Position vector relative to central body
+  const rx = body.position.x - centralBody.position.x;
+  const ry = body.position.y - centralBody.position.y;
+  const rz = body.position.z - centralBody.position.z;
+  const r = Math.sqrt(rx * rx + ry * ry + rz * rz);
   if (r < 0.001) return points;
   
-  // Get velocity to determine orbital plane
+  // Velocity vector
   const vx = body.velocity?.x || 0;
   const vy = body.velocity?.y || 0;
   const vz = body.velocity?.z || 0;
-  const vMag = Math.sqrt(vx * vx + vy * vy + vz * vz);
+  const v = Math.sqrt(vx * vx + vy * vy + vz * vz);
+  if (v < 0.0001) return points;
   
-  // Calculate orbital plane normal from angular momentum: L = r × v
-  let nx, ny, nz;
-  if (vMag > 0.001) {
-    nx = dy * vz - dz * vy;
-    ny = dz * vx - dx * vz;
-    nz = dx * vy - dy * vx;
+  // Angular momentum vector: h = r × v
+  const hx = ry * vz - rz * vy;
+  const hy = rz * vx - rx * vz;
+  const hz = rx * vy - ry * vx;
+  const h = Math.sqrt(hx * hx + hy * hy + hz * hz);
+  if (h < 1e-10) return points;
+  
+  // Standard gravitational parameter
+  const mu = G * centralBody.mass;
+  
+  // Calculate circular orbit velocity at this radius: v_circ = sqrt(mu/r)
+  const vCirc = Math.sqrt(mu / r);
+  
+  // Quick eccentricity estimate: compare actual velocity to circular velocity
+  // For a circular orbit, v = vCirc. For elliptical, v differs.
+  // Also check if velocity is mostly tangential (perpendicular to radius)
+  const radialV = (rx * vx + ry * vy + rz * vz) / r; // velocity component along radius
+  const tangentV = Math.sqrt(v * v - radialV * radialV); // velocity component perpendicular to radius
+  
+  // Eccentricity estimate based on velocity ratio and radial component
+  const velocityRatio = v / vCirc;
+  const radialRatio = Math.abs(radialV) / v;
+  
+  // If velocity is close to circular AND mostly tangential, use circle
+  // This handles the Solar System case where orbits are designed to be circular
+  const isNearlyCircular = (velocityRatio > 0.85 && velocityRatio < 1.15) && (radialRatio < 0.15);
+  
+  if (isNearlyCircular) {
+    // Use simple circle at current radius
+    return generateCirclePath(rx, ry, rz, r, vx, vy, vz, centralBody, numPoints);
+  }
+  
+  // For non-circular orbits, calculate proper ellipse
+  // Semi-latus rectum: p = h² / μ
+  const p = (h * h) / mu;
+  if (p < 0.001 || !isFinite(p)) {
+    return generateCirclePath(rx, ry, rz, r, vx, vy, vz, centralBody, numPoints);
+  }
+  
+  // Eccentricity from vis-viva: e² = 1 + (2 * ε * h²) / μ²
+  // where ε = v²/2 - μ/r (specific orbital energy)
+  const energy = (v * v) / 2 - mu / r;
+  const eSq = 1 + (2 * energy * h * h) / (mu * mu);
+  
+  if (eSq < 0 || !isFinite(eSq)) {
+    return generateCirclePath(rx, ry, rz, r, vx, vy, vz, centralBody, numPoints);
+  }
+  
+  const e = Math.sqrt(Math.max(0, eSq));
+  
+  // For very high eccentricity or hyperbolic, fall back to circle
+  if (e >= 0.95 || !isFinite(e)) {
+    return generateCirclePath(rx, ry, rz, r, vx, vy, vz, centralBody, numPoints);
+  }
+  
+  // Orbital plane normal
+  const hNorm = { x: hx / h, y: hy / h, z: hz / h };
+  
+  // Find periapsis direction from eccentricity vector
+  // e_vec = (v × h)/μ - r_hat
+  const vCrossH_x = vy * hz - vz * hy;
+  const vCrossH_y = vz * hx - vx * hz;
+  const vCrossH_z = vx * hy - vy * hx;
+  
+  const ex = vCrossH_x / mu - rx / r;
+  const ey = vCrossH_y / mu - ry / r;
+  const ez = vCrossH_z / mu - rz / r;
+  const eMag = Math.sqrt(ex * ex + ey * ey + ez * ez);
+  
+  let periDir;
+  if (eMag > 0.01) {
+    periDir = { x: ex / eMag, y: ey / eMag, z: ez / eMag };
+  } else {
+    // Nearly circular - use current position
+    periDir = { x: rx / r, y: ry / r, z: rz / r };
+  }
+  
+  // Perpendicular direction in orbital plane: q = h × peri
+  const qDir = {
+    x: hNorm.y * periDir.z - hNorm.z * periDir.y,
+    y: hNorm.z * periDir.x - hNorm.x * periDir.z,
+    z: hNorm.x * periDir.y - hNorm.y * periDir.x
+  };
+  
+  // Generate ellipse: r(θ) = p / (1 + e*cos(θ))
+  for (let i = 0; i <= numPoints; i++) {
+    const theta = (i / numPoints) * 2 * Math.PI;
+    const cosTheta = Math.cos(theta);
+    const sinTheta = Math.sin(theta);
     
-    const nMag = Math.sqrt(nx * nx + ny * ny + nz * nz);
-    if (nMag > 0.001) {
-      nx /= nMag;
-      ny /= nMag;
-      nz /= nMag;
-    } else {
-      nx = 0; ny = 1; nz = 0;
-    }
+    const rTheta = p / (1 + e * cosTheta);
+    if (!isFinite(rTheta) || rTheta < 0) continue;
+    
+    const orbitX = rTheta * cosTheta;
+    const orbitY = rTheta * sinTheta;
+    
+    points.push({
+      x: centralBody.position.x + orbitX * periDir.x + orbitY * qDir.x,
+      y: centralBody.position.y + orbitX * periDir.y + orbitY * qDir.y,
+      z: centralBody.position.z + orbitX * periDir.z + orbitY * qDir.z
+    });
+  }
+  
+  return points;
+}
+
+// Generate a simple circle in the orbital plane
+function generateCirclePath(rx, ry, rz, r, vx, vy, vz, centralBody, numPoints) {
+  const points = [];
+  
+  // Angular momentum for orbital plane
+  const hx = ry * vz - rz * vy;
+  const hy = rz * vx - rx * vz;
+  const hz = rx * vy - ry * vx;
+  const h = Math.sqrt(hx * hx + hy * hy + hz * hz);
+  
+  let nx, ny, nz;
+  if (h > 0.001) {
+    nx = hx / h; ny = hy / h; nz = hz / h;
   } else {
     nx = 0; ny = 1; nz = 0;
   }
   
-  // Create basis vectors in the orbital plane
-  // u = some vector perpendicular to n
+  // Create basis vectors in orbital plane
   let ux, uy, uz;
   if (Math.abs(ny) < 0.9) {
-    // Cross with Y axis
-    ux = nz;
-    uy = 0;
-    uz = -nx;
+    ux = nz; uy = 0; uz = -nx;
   } else {
-    // Cross with X axis
-    ux = 0;
-    uy = -nz;
-    uz = ny;
+    ux = 0; uy = -nz; uz = ny;
   }
   const uMag = Math.sqrt(ux * ux + uy * uy + uz * uz);
-  ux /= uMag; uy /= uMag; uz /= uMag;
+  if (uMag > 0.001) {
+    ux /= uMag; uy /= uMag; uz /= uMag;
+  }
   
-  // v = n × u
   const vvx = ny * uz - nz * uy;
   const vvy = nz * ux - nx * uz;
   const vvz = nx * uy - ny * ux;
   
-  // Generate circle in the orbital plane
   for (let i = 0; i <= numPoints; i++) {
     const angle = (i / numPoints) * 2 * Math.PI;
     const cosA = Math.cos(angle);
@@ -460,9 +555,10 @@ const PlanetariumScene = () => {
   // Orbit interpolation refs for smooth transitions
   const orbitTargetPathsRef = useRef([]); // Target orbit positions to interpolate towards
   const orbitInterpolationRef = useRef(1); // 0-1 progress of interpolation (1 = complete)
+  const orbitCenterRef = useRef({ x: 0, y: 0, z: 0 }); // Store center position when orbits were calculated
   // Orbit update intervals - real-time for chaotic, less frequent for stable
   const ORBIT_PATH_RECALC_INTERVAL_CHAOTIC = 2; // Every 2 frames (~33ms) for chaotic - near real-time
-  const ORBIT_PATH_RECALC_INTERVAL_STABLE = 60; // Every ~1 second for stable orbits
+  const ORBIT_PATH_RECALC_INTERVAL_STABLE_BASE = 30; // Base interval for stable orbits, scales with time
   const ORBIT_INTERPOLATION_SPEED_CHAOTIC = 0.5; // Fast blend for chaotic (50% per frame)
   const ORBIT_INTERPOLATION_SPEED_STABLE = 0.15; // Slower blend for stable orbits
   const frameTimeRef = useRef(0); // Track actual frame time for accurate performance monitoring
@@ -825,7 +921,7 @@ const PlanetariumScene = () => {
     } else {
       // Generic level loading (Three Body, etc.)
       initialBodies = Object.entries(level.bodies).map(([name, data]) => {
-        return new Star(
+        const body = new Star(
           name,
           data.radius,
           data.mass,
@@ -834,6 +930,14 @@ const PlanetariumScene = () => {
           data.position,
           data.velocity
         );
+        // Copy custom properties for special effects (binary systems, etc.)
+        if (data.isBinarySystem) {
+          body.isBinarySystem = data.isBinarySystem;
+          body.binaryPartner = data.binaryPartner;
+          body.binarySeparation = data.binarySeparation;
+          body.binaryPeriod = data.binaryPeriod;
+        }
+        return body;
       });
 
       if (level.cameraPosition) {
@@ -1403,6 +1507,29 @@ const PlanetariumScene = () => {
         lod.userData.ringRef = ringMesh; // Keep reference for cleanup
       }
       
+      // Handle binary systems - create partner mesh
+      if (body.isBinarySystem && body.binaryPartner) {
+        const partner = body.binaryPartner;
+        const partnerGeometry = new THREE.SphereGeometry(partner.radius, 32, 16);
+        const partnerMaterial = new THREE.MeshStandardMaterial({
+          color: partner.color,
+          emissive: partner.color,
+          emissiveIntensity: 0.5,
+          roughness: 0.5,
+          metalness: 0.5
+        });
+        const partnerMesh = new THREE.Mesh(partnerGeometry, partnerMaterial);
+        partnerMesh.position.copy(body.position);
+        scene.add(partnerMesh);
+        
+        // Store binary info on the main LOD for animation
+        lod.userData.isBinarySystem = true;
+        lod.userData.binaryPartnerMesh = partnerMesh;
+        lod.userData.binarySeparation = body.binarySeparation || 10;
+        lod.userData.binaryPeriod = body.binaryPeriod || 1;
+        lod.userData.binaryAngle = 0;
+      }
+      
       scene.add(lod);
       return lod;
     });
@@ -1462,6 +1589,13 @@ const PlanetariumScene = () => {
       // Find the central body (Sun or largest mass)
       const sun = bodiesRef.current.find(b => b.name === 'Sun');
       const centralBody = sun || bodiesRef.current.reduce((a, b) => a.mass > b.mass ? a : b);
+      
+      // Store center position for frame-by-frame translation
+      orbitCenterRef.current = {
+        x: centralBody.position.x,
+        y: centralBody.position.y,
+        z: centralBody.position.z
+      };
       
       // For Solar System and Outer Wilds, generate simple circular orbits
       if (currentLevel.simulationType === 'solarSystem' || currentLevel.simulationType === 'outerWilds') {
@@ -1628,8 +1762,39 @@ const PlanetariumScene = () => {
       bodiesRef.current.forEach((body, index) => {
         const mesh = bodyMeshesRef.current[index];
         if (mesh) {
-          // CRITICAL: Update mesh position from body position - this makes bodies visible
-          mesh.position.set(body.position.x, body.position.y, body.position.z);
+          // Handle binary systems - both meshes orbit around the physics center
+          if (mesh.userData.isBinarySystem && mesh.userData.binaryPartnerMesh) {
+            const separation = mesh.userData.binarySeparation;
+            const period = mesh.userData.binaryPeriod;
+            const partnerMesh = mesh.userData.binaryPartnerMesh;
+            
+            // Update binary angle based on time
+            if (!isPausedRef.current) {
+              const currentTimeScale = timeScaleRef.current;
+              mesh.userData.binaryAngle += frameDelta * period * (currentTimeScale / 100);
+            }
+            
+            const angle = mesh.userData.binaryAngle;
+            const halfSep = separation / 2;
+            
+            // Position both meshes orbiting around the physics center point
+            // Main body (AshTwin)
+            mesh.position.set(
+              body.position.x + Math.cos(angle) * halfSep,
+              body.position.y + Math.sin(angle) * halfSep * 0.3, // Slight y wobble
+              body.position.z + Math.sin(angle) * halfSep
+            );
+            
+            // Partner body (EmberTwin) - opposite side
+            partnerMesh.position.set(
+              body.position.x - Math.cos(angle) * halfSep,
+              body.position.y - Math.sin(angle) * halfSep * 0.3,
+              body.position.z - Math.sin(angle) * halfSep
+            );
+          } else {
+            // CRITICAL: Update mesh position from body position - this makes bodies visible
+            mesh.position.set(body.position.x, body.position.y, body.position.z);
+          }
           
           // Update sun light position
           if (body.name === 'Sun') {
@@ -1824,7 +1989,52 @@ const PlanetariumScene = () => {
       if (showOrbitsRef.current && !isPausedRef.current) {
         const currentLevel = LEVELS[currentLevelId] || LEVELS.SOLAR_SYSTEM;
         const isChaotic = currentLevel.simulationType === 'threeBody' || currentLevel.simulationType === 'nBody';
-        const recalcInterval = isChaotic ? ORBIT_PATH_RECALC_INTERVAL_CHAOTIC : ORBIT_PATH_RECALC_INTERVAL_STABLE;
+        
+        // For stable systems (solar system, outer wilds), update orbits every frame
+        // to keep them in sync with the bodies - orbits are cheap circles
+        if (!isChaotic && orbitLinesRef.current.length > 0) {
+          const sun = bodiesRef.current.find(b => b.name === 'Sun');
+          const centralBody = sun || bodiesRef.current.reduce((a, b) => a.mass > b.mass ? a : b, bodiesRef.current[0]);
+          
+          if (centralBody) {
+            const G = currentLevel.gConstant;
+            let orbitIndex = 0;
+            
+            bodiesRef.current.forEach((body) => {
+              if (body === centralBody) return;
+              
+              const line = orbitLinesRef.current[orbitIndex];
+              if (!line || !line.geometry) {
+                orbitIndex++;
+                return;
+              }
+              
+              const posAttr = line.geometry.getAttribute('position');
+              if (!posAttr) {
+                orbitIndex++;
+                return;
+              }
+              
+              // Calculate orbit at current distance
+              const newPath = generateOrbitPath(body, centralBody, G, posAttr.count - 1);
+              
+              if (newPath.length === posAttr.count) {
+                for (let i = 0; i < newPath.length; i++) {
+                  posAttr.setXYZ(i, newPath[i].x, newPath[i].y, newPath[i].z);
+                }
+                posAttr.needsUpdate = true;
+              }
+              
+              orbitIndex++;
+            });
+          }
+        }
+        
+        // Scale recalc interval inversely with time scale - faster sim = more frequent updates
+        const currentTimeScale = timeScaleRef.current;
+        const timeScaleFactor = Math.max(1, currentTimeScale / 100); // e.g., at 1000x, factor is 10
+        const recalcIntervalStable = Math.max(5, Math.floor(ORBIT_PATH_RECALC_INTERVAL_STABLE_BASE / timeScaleFactor));
+        const recalcInterval = isChaotic ? ORBIT_PATH_RECALC_INTERVAL_CHAOTIC : recalcIntervalStable;
         const interpolationSpeed = isChaotic ? ORBIT_INTERPOLATION_SPEED_CHAOTIC : ORBIT_INTERPOLATION_SPEED_STABLE;
         
         // Interpolate towards target orbit paths each frame for smooth transitions
