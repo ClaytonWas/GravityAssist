@@ -278,7 +278,7 @@ function CameraContent({ cameraPresets, onCameraPreset }) {
       <div className="pt-3 border-t border-slate-700/50">
         <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-2">Keyboard</p>
         <div className="flex flex-wrap gap-1">
-          {['1-9: Planets', '0: Unlock'].map(shortcut => (
+          {['1-9: Bodies', '0: Unlock'].map(shortcut => (
             <span key={shortcut} className="text-[10px] bg-slate-800 text-slate-400 px-2 py-1 rounded font-mono">
               {shortcut}
             </span>

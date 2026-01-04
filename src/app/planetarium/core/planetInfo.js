@@ -263,6 +263,181 @@ export const PLANET_INFO = {
       { id: "MethaneIce", label: "Methane Ice", value: 12.00, color: "#20B2AA" },
       { id: "Other", label: "Other", value: 3.00, color: "#708090" }
     ]
+  },
+  // Outer Wilds System Bodies
+  TimberHearth: {
+    name: "Timber Hearth",
+    type: "Terrestrial Planet",
+    description: "A forested world and home planet of the Hearthians. Features vast forests, geysers, and underground caves.",
+    facts: [
+      "Home world of the Hearthian species",
+      "Surface covered in lush forests",
+      "Features active geysers",
+      "Contains extensive cave systems",
+      "Location of the Outer Wilds Ventures launch site"
+    ],
+    distance: "200 units from Sun",
+    orbitalPeriod: "~2 minutes",
+    dayLength: "22 minutes",
+    moons: 1,
+    composition: [
+      { id: "Nitrogen", label: "Nitrogen", value: 70.00, color: "#4169E1" },
+      { id: "Oxygen", label: "Oxygen", value: 25.00, color: "#4A90E2" },
+      { id: "CO2", label: "Carbon Dioxide", value: 3.00, color: "#8B4513" },
+      { id: "Other", label: "Other", value: 2.00, color: "#708090" }
+    ],
+    coreComposition: [
+      { id: "Iron", label: "Iron", value: 70.00, color: "#C9A961" },
+      { id: "Silicates", label: "Silicates", value: 20.00, color: "#7B68EE" },
+      { id: "Other", label: "Other", value: 10.00, color: "#95A5A6" }
+    ]
+  },
+  BrittleHollow: {
+    name: "Brittle Hollow",
+    type: "Fragmented Planet",
+    description: "A hollow planet slowly collapsing into a black hole at its core. Its surface constantly breaks apart from volcanic moon impacts.",
+    facts: [
+      "Contains a black hole at its core",
+      "Surface fragments fall into the black hole",
+      "Orbited by Hollow's Lantern, a volcanic moon",
+      "Ancient Nomai ruins hidden within",
+      "Gravity becomes inverted near the core"
+    ],
+    distance: "350 units from Sun",
+    orbitalPeriod: "~3 minutes",
+    dayLength: "Unknown",
+    moons: 1,
+    composition: [
+      { id: "Rock", label: "Rock", value: 85.00, color: "#6B4E71" },
+      { id: "Metal", label: "Metal", value: 10.00, color: "#C9A961" },
+      { id: "Other", label: "Other", value: 5.00, color: "#95A5A6" }
+    ],
+    coreComposition: [
+      { id: "BlackHole", label: "Black Hole", value: 100.00, color: "#1a1a2e" }
+    ]
+  },
+  GiantsDeep: {
+    name: "Giant's Deep",
+    type: "Ocean Giant",
+    description: "A massive ocean world with violent cyclones that can launch islands into orbit. Beneath the storms lies a hidden core.",
+    facts: [
+      "Entirely covered by ocean",
+      "Features massive cyclones",
+      "Cyclones can launch objects into orbit",
+      "Contains floating islands",
+      "Hides secrets beneath the current"
+    ],
+    distance: "550 units from Sun",
+    orbitalPeriod: "~5 minutes",
+    dayLength: "Unknown",
+    moons: 0,
+    composition: [
+      { id: "Water", label: "Water", value: 90.00, color: "#2E8B57" },
+      { id: "Ammonia", label: "Ammonia", value: 5.00, color: "#9370DB" },
+      { id: "Other", label: "Other", value: 5.00, color: "#708090" }
+    ],
+    coreComposition: [
+      { id: "Jellyfish", label: "Giant Jellyfish", value: 50.00, color: "#48D1CC" },
+      { id: "Current", label: "Strong Current", value: 50.00, color: "#20B2AA" }
+    ]
+  },
+  AshTwin: {
+    name: "Ash Twin",
+    type: "Desert Planet",
+    description: "One half of the Hourglass Twins. Sand flows from Ash Twin to Ember Twin through a massive sand column connecting them.",
+    facts: [
+      "Part of the Hourglass Twins binary system",
+      "Sand transfers to Ember Twin",
+      "Contains ancient Nomai structures",
+      "Features underground caverns",
+      "Connected to Ember Twin by sand column"
+    ],
+    distance: "120 units from Sun",
+    orbitalPeriod: "~1.5 minutes",
+    dayLength: "Tidally locked to Ember Twin",
+    moons: 0,
+    composition: [
+      { id: "Sand", label: "Sand", value: 60.00, color: "#D2691E" },
+      { id: "Rock", label: "Rock", value: 30.00, color: "#8B7355" },
+      { id: "Metal", label: "Metal", value: 10.00, color: "#C9A961" }
+    ],
+    coreComposition: [
+      { id: "NomaiBone", label: "Nomai Artifact", value: 40.00, color: "#FFD700" },
+      { id: "Rock", label: "Rock", value: 60.00, color: "#8B7355" }
+    ]
+  },
+  EmberTwin: {
+    name: "Ember Twin",
+    type: "Rocky Planet",
+    description: "The other half of the Hourglass Twins. Receives sand from Ash Twin, slowly burying its surface structures over time.",
+    facts: [
+      "Part of the Hourglass Twins binary system",
+      "Receives sand from Ash Twin",
+      "Surface structures get buried by sand",
+      "Contains Nomai mining sites",
+      "Reveals hidden caves as sand level drops"
+    ],
+    distance: "120 units from Sun",
+    orbitalPeriod: "~1.5 minutes",
+    dayLength: "Tidally locked to Ash Twin",
+    moons: 0,
+    composition: [
+      { id: "Rock", label: "Rock", value: 50.00, color: "#CD853F" },
+      { id: "Sand", label: "Sand", value: 40.00, color: "#D2691E" },
+      { id: "Metal", label: "Metal", value: 10.00, color: "#C9A961" }
+    ],
+    coreComposition: [
+      { id: "Iron", label: "Iron", value: 70.00, color: "#C9A961" },
+      { id: "Silicates", label: "Silicates", value: 30.00, color: "#7B68EE" }
+    ]
+  },
+  DarkBramble: {
+    name: "Dark Bramble",
+    type: "Anomalous Structure",
+    description: "A mysterious, thorny dimension-warping structure. What appears small from outside contains impossibly vast spaces within.",
+    facts: [
+      "Interior is larger than exterior",
+      "Contains dimension-warping seeds",
+      "Cute fishies! :)",
+      "Grew from a seed that destroyed a planet"
+    ],
+    distance: "800 units from Sun",
+    orbitalPeriod: "~8 minutes",
+    dayLength: "N/A",
+    moons: 0,
+    composition: [
+      { id: "Bramble", label: "Bramble Growth", value: 70.00, color: "#2F4F4F" },
+      { id: "Void", label: "Void Space", value: 25.00, color: "#1a1a2e" },
+      { id: "Unknown", label: "Unknown Matter", value: 5.00, color: "#4B0082" }
+    ],
+    coreComposition: [
+      { id: "Seeds", label: "Dimension Seeds", value: 50.00, color: "#556B2F" },
+      { id: "Anglerfish", label: "Anglerfish Nests", value: 50.00, color: "#8B0000" }
+    ]
+  },
+  Interloper: {
+    name: "The Interloper",
+    type: "Comet",
+    description: "A frozen comet with a highly elliptical orbit. Contains a dark secret at its frozen core.",
+    facts: [
+      "Highly elliptical orbit",
+      "Surface covered in ice",
+      "Contains a frozen cavern",
+      "Harbors a dangerous substance",
+      "Passes close to the Sun"
+    ],
+    distance: "Variable (150-800 units)",
+    orbitalPeriod: "~10 minutes",
+    dayLength: "N/A",
+    moons: 0,
+    composition: [
+      { id: "Ice", label: "Ice", value: 80.00, color: "#ADD8E6" },
+      { id: "Rock", label: "Rock", value: 15.00, color: "#708090" },
+      { id: "GhostMatter", label: "Ghost Matter", value: 5.00, color: "#98FB98" }
+    ],
+    coreComposition: [
+      { id: "GhostMatter", label: "Ghost Matter", value: 90.00, color: "#98FB98" },
+      { id: "Ice", label: "Ice", value: 10.00, color: "#ADD8E6" }
+    ]
   }
 };
-

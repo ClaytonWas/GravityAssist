@@ -551,6 +551,7 @@ const PlanetariumScene = () => {
   const setCameraTargetNameRef = useRef(null);
   const labelsRef = useRef([]);
   const planetRingsRef = useRef([]); // Store rings separately so they orbit independently
+  const binaryPartnerMeshesRef = useRef(new Map()); // Map of partner mesh to parent body name (e.g., EmberTwin mesh -> 'AshTwin')
   const orbitCalculationPendingRef = useRef(false); // Prevent overlapping orbit calculations
   // Orbit interpolation refs for smooth transitions
   const orbitTargetPathsRef = useRef([]); // Target orbit positions to interpolate towards
@@ -822,12 +823,36 @@ const PlanetariumScene = () => {
           }
         });
       });
+      // Add binary partner meshes (like Ember Twin)
+      binaryPartnerMeshesRef.current.forEach((parentBodyName, partnerMesh) => {
+        clickableObjects.push(partnerMesh);
+      });
       probeMeshesRef.current.forEach(mesh => clickableObjects.push(mesh));
 
       const intersects = raycaster.intersectObjects(clickableObjects);
 
       if (intersects.length > 0) {
         const clickedMesh = intersects[0].object;
+        
+        // Check if it's a binary partner mesh (like Ember Twin)
+        if (binaryPartnerMeshesRef.current.has(clickedMesh)) {
+          const partnerName = clickedMesh.userData.partnerName;
+          // Create a pseudo-body for the partner to display info
+          const parentBodyName = binaryPartnerMeshesRef.current.get(clickedMesh);
+          const parentBody = bodiesRef.current.find(b => b.name === parentBodyName);
+          if (parentBody && parentBody.binaryPartner) {
+            const partnerBody = {
+              name: parentBody.binaryPartner.name,
+              position: { ...clickedMesh.position },
+              radius: parentBody.binaryPartner.radius,
+              isBinaryPartner: true,
+              parentBody: parentBodyName
+            };
+            setSelectedBody(partnerBody);
+            setIsInfoVisible(true);
+            return;
+          }
+        }
         
         // Check if it's a body (LOD child)
         if (clickedMesh.userData.parentLOD) {
@@ -1520,7 +1545,11 @@ const PlanetariumScene = () => {
         });
         const partnerMesh = new THREE.Mesh(partnerGeometry, partnerMaterial);
         partnerMesh.position.copy(body.position);
+        partnerMesh.userData.partnerName = partner.name;
         scene.add(partnerMesh);
+        
+        // Store reference for click handling
+        binaryPartnerMeshesRef.current.set(partnerMesh, body.name);
         
         // Store binary info on the main LOD for animation
         lod.userData.isBinarySystem = true;
@@ -2287,8 +2316,15 @@ const PlanetariumScene = () => {
       renderer.render(scene, camera);
     };
 
-    // Planet names in order (Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune, Sun)
-    const planetOrder = ['Mercury', 'Venus', 'Earth', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune', 'Sun'];
+    // Get body names from current level dynamically (excluding Sun, which goes at index 9)
+    const getLevelBodyOrder = () => {
+      const level = LEVELS[currentLevelId] || LEVELS.SOLAR_SYSTEM;
+      const bodyNames = Object.keys(level.bodies);
+      // Put Sun/central body last (for key 9), others in order (keys 1-8)
+      const centralBody = bodyNames.find(name => name === 'Sun') || bodyNames[0];
+      const otherBodies = bodyNames.filter(name => name !== centralBody);
+      return [...otherBodies, centralBody];
+    };
     
     const handleKeyDown = (e) => {
       // Don't handle keys if user is typing in an input
@@ -2304,15 +2340,16 @@ const PlanetariumScene = () => {
           setCameraTargetNameRef.current(null);
         }
       } else if (e.key >= '1' && e.key <= '9') {
+        const bodyOrder = getLevelBodyOrder();
         const index = parseInt(e.key) - 1;
-        if (index < planetOrder.length && setCameraTargetNameRef.current) {
-          const planetName = planetOrder[index];
+        if (index < bodyOrder.length && setCameraTargetNameRef.current) {
+          const bodyName = bodyOrder[index];
           // Toggle: if already focused, unlock; otherwise focus
           setCameraTargetNameRef.current((current) => {
-            if (current === planetName) {
+            if (current === bodyName) {
               return null; // Unlock if already focused
             } else {
-              return planetName; // Focus on new planet
+              return bodyName; // Focus on new body
             }
           });
         }
@@ -2380,6 +2417,9 @@ const PlanetariumScene = () => {
 
       // Clean up planetary rings
       planetRingsRef.current = [];
+      
+      // Clean up binary partner meshes ref
+      binaryPartnerMeshesRef.current.clear();
       
       // Mark as unmounted to prevent state updates after cleanup
       isMounted = false;
@@ -3031,7 +3071,7 @@ const PlanetariumScene = () => {
                 <h3 className="text-lg sm:text-xl font-semibold mb-2 sm:mb-3 text-blue-400">Navigation</h3>
                 <ul className="list-disc list-inside space-y-1 sm:space-y-2 text-sm sm:text-lg leading-relaxed">
                   <li><strong>Touch/Mouse:</strong> Drag to rotate camera, pinch/scroll to zoom</li>
-                  <li><strong>Keyboard:</strong> Press 1-8 to focus on planets, 9 for Sun, 0 to reset</li>
+                  <li><strong>Keyboard:</strong> Press 1-9 to focus on bodies, 0 to reset view</li>
                   <li><strong>Camera Presets:</strong> Use the panel to quickly jump to any planet</li>
                   <li><strong>Tap/Click Planets:</strong> Tap any planet to see detailed information</li>
                 </ul>
