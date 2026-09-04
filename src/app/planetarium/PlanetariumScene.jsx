@@ -12,6 +12,14 @@ import { predictTrajectory, rk4Step } from '@/app/planetarium/core/physics';
 import { SOLAR_SYSTEM_DATA, getInitialOrbitalData, getVisualRadius } from '@/app/planetarium/core/solarSystemData';
 import { LEVELS } from '@/app/planetarium/core/levels';
 import { PLANET_INFO } from '@/app/planetarium/core/planetInfo';
+import ControlBar from '@/app/planetarium/components/ControlBar';
+import HelpDialog from '@/app/planetarium/components/HelpDialog';
+import LoadingScreen from '@/app/planetarium/components/LoadingScreen';
+import WelcomeOverlay from '@/app/planetarium/components/WelcomeOverlay';
+import ToastStack, { useToasts } from '@/app/planetarium/components/Toasts';
+import { HoverLabelHost, FocusBadge } from '@/app/planetarium/components/SceneOverlays';
+
+const WELCOME_STORAGE_KEY = 'gravity-assist:welcomed';
 
 function createStarfield() {
   const texture = new THREE.TextureLoader().load("/planetarium/textures/White-Star.png");
@@ -496,7 +504,8 @@ const PlanetariumScene = () => {
   const mountRef = useRef(null);
   const [isClient, setIsClient] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [loadingStatus, setLoadingStatus] = useState('Initializing...');
+  const [loadingStatus, setLoadingStatus] = useState('Initializing…');
+  const [loadProgress, setLoadProgress] = useState(0);
   const [timeScale, setTimeScale] = useState(1000); // Default speed
   const MIN_TIME_SCALE = 100;
   const MAX_TIME_SCALE = 15000;
@@ -511,10 +520,48 @@ const PlanetariumScene = () => {
   // Hydration guard - only render full UI on client
   useEffect(() => {
     setIsClient(true);
+    // The controls panel covers most of a phone screen, so start it collapsed there.
+    if (window.innerWidth < 640) setIsControlsOpen(false);
+    // First-time visitors get a short orientation card; everyone else goes straight in.
+    try {
+      if (!window.localStorage.getItem(WELCOME_STORAGE_KEY)) setShowWelcome(true);
+    } catch {
+      // localStorage can be unavailable (private mode); silently skip the intro.
+    }
   }, []);
+
   const [hoveredCompositionId, setHoveredCompositionId] = useState(null);
   const [compositionTab, setCompositionTab] = useState('atmosphere'); // 'atmosphere' or 'core'
-  const [isInfoPopupVisible, setIsInfoPopupVisible] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [isControlsOpen, setIsControlsOpen] = useState(true);
+  const { toasts, push: pushToast, dismiss: dismissToast } = useToasts();
+  const pushToastRef = useRef(pushToast);
+  const hoverApiRef = useRef(null);
+  const isHelpOpenRef = useRef(false);
+  const isInfoVisibleRef = useRef(false);
+
+  useEffect(() => {
+    pushToastRef.current = pushToast;
+  }, [pushToast]);
+
+  // Mirrors for the keyboard handler, which lives outside the React render cycle.
+  useEffect(() => {
+    isHelpOpenRef.current = isHelpOpen;
+  }, [isHelpOpen]);
+
+  useEffect(() => {
+    isInfoVisibleRef.current = isInfoVisible;
+  }, [isInfoVisible]);
+
+  const dismissWelcome = useCallback(() => {
+    setShowWelcome(false);
+    try {
+      window.localStorage.setItem(WELCOME_STORAGE_KEY, '1');
+    } catch {
+      // Nothing to persist to - the intro simply reappears next visit.
+    }
+  }, []);
   const [showOrbits, setShowOrbits] = useState(true);
   const [currentLevelId, setCurrentLevelId] = useState('SOLAR_SYSTEM');
   const [debugMode, setDebugMode] = useState(false);
@@ -579,8 +626,11 @@ const PlanetariumScene = () => {
       return;
     }
 
+    // Human-readable, stable names: Probe 1, Probe 2, ... rather than a timestamp.
+    const probeName = probeData.name || `Probe ${probesRef.current.length + 1}`;
+
     const probe = new Probe(
-      probeData.name,
+      probeName,
       { x: earth.position.x, y: earth.position.y, z: earth.position.z },
       probeData.velocity,
       probeData.mass || 0.001  // Ensure probe has a reasonable mass
@@ -648,6 +698,14 @@ const PlanetariumScene = () => {
         }
       });
     }
+
+    // Velocities are stored in units of ~1000 km/s (Earth's 29.8 km/s is 0.0298).
+    const speedKmPerSec = Math.hypot(probe.velocity.x, probe.velocity.y, probe.velocity.z) * 1000;
+    pushToastRef.current?.(`${probeName} launched`, {
+      icon: '🚀',
+      tone: 'success',
+      detail: `${speedKmPerSec.toFixed(1)} km/s · trailing a green track`
+    });
   }, [getEarth]);
 
   // Update trajectory preview
@@ -678,10 +736,19 @@ const PlanetariumScene = () => {
     const safeSetIsLoading = (loading) => {
       if (isMounted) setIsLoading(loading);
     };
+    // Progress only ever moves forward, so a late texture callback can't rewind the bar.
+    let reportedProgress = 0;
+    const safeSetProgress = (value) => {
+      if (!isMounted || value <= reportedProgress) return;
+      reportedProgress = value;
+      setLoadProgress(value);
+    };
     
     // Start loading
     safeSetIsLoading(true);
-    safeSetLoadingStatus('Creating physics engine...');
+    setLoadProgress(0);
+    safeSetLoadingStatus('Creating physics engine…');
+    safeSetProgress(5);
     
     // Create physics worker
     let physicsWorker = null;
@@ -746,14 +813,19 @@ const PlanetariumScene = () => {
     // Create loading manager to track texture loading progress
     const loadingManager = new THREE.LoadingManager();
     loadingManager.onProgress = (url, loaded, total) => {
-      const progress = Math.round((loaded / total) * 100);
-      safeSetLoadingStatus(`Loading textures... ${progress}%`);
+      // Textures occupy the 15-85% band of the bar.
+      safeSetLoadingStatus('Loading planet textures…');
+      safeSetProgress(15 + Math.round((loaded / Math.max(1, total)) * 70));
+    };
+    loadingManager.onLoad = () => {
+      safeSetProgress(85);
     };
     
     const textureLoader = new THREE.TextureLoader(loadingManager);
     const clock = new THREE.Clock();
     
-    safeSetLoadingStatus('Setting up renderer...');
+    safeSetLoadingStatus('Setting up renderer…');
+    safeSetProgress(12);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
@@ -804,85 +876,164 @@ const PlanetariumScene = () => {
     renderer.domElement.addEventListener('wheel', onCameraZoom);
 
     const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2();
+    const pointerNdc = new THREE.Vector2();
 
-    function onClick(event) {
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-      raycaster.setFromCamera(mouse, camera);
-
-      // Get all scene objects that could be clicked (we need to traverse LODs)
-      const clickableObjects = [];
+    // Everything the pointer is allowed to hit: body LOD children, binary
+    // partners (e.g. Ember Twin) and probe meshes.
+    const collectPickables = () => {
+      const pickables = [];
       bodyMeshesRef.current.forEach(lod => {
         lod.traverse(child => {
           if (child.isMesh) {
             child.userData.parentLOD = lod;
-            clickableObjects.push(child);
+            pickables.push(child);
           }
         });
       });
-      // Add binary partner meshes (like Ember Twin)
       binaryPartnerMeshesRef.current.forEach((parentBodyName, partnerMesh) => {
-        clickableObjects.push(partnerMesh);
+        pickables.push(partnerMesh);
       });
-      probeMeshesRef.current.forEach(mesh => clickableObjects.push(mesh));
+      probeMeshesRef.current.forEach(mesh => pickables.push(mesh));
+      return pickables;
+    };
 
-      const intersects = raycaster.intersectObjects(clickableObjects);
+    const meshAtPointer = (clientX, clientY) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointerNdc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      pointerNdc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointerNdc, camera);
+      const intersects = raycaster.intersectObjects(collectPickables());
+      return intersects.length > 0 ? intersects[0].object : null;
+    };
 
-      if (intersects.length > 0) {
-        const clickedMesh = intersects[0].object;
-        
-        // Check if it's a binary partner mesh (like Ember Twin)
-        if (binaryPartnerMeshesRef.current.has(clickedMesh)) {
-          const partnerName = clickedMesh.userData.partnerName;
-          // Create a pseudo-body for the partner to display info
-          const parentBodyName = binaryPartnerMeshesRef.current.get(clickedMesh);
-          const parentBody = bodiesRef.current.find(b => b.name === parentBodyName);
-          if (parentBody && parentBody.binaryPartner) {
-            const partnerBody = {
-              name: parentBody.binaryPartner.name,
-              position: { ...clickedMesh.position },
-              radius: parentBody.binaryPartner.radius,
-              isBinaryPartner: true,
-              parentBody: parentBodyName
-            };
-            setSelectedBody(partnerBody);
-            setIsInfoVisible(true);
-            return;
+    // Map a picked mesh back to the thing the UI cares about.
+    const resolvePick = (mesh) => {
+      if (!mesh) return null;
+
+      if (binaryPartnerMeshesRef.current.has(mesh)) {
+        const parentBodyName = binaryPartnerMeshesRef.current.get(mesh);
+        const parentBody = bodiesRef.current.find(b => b.name === parentBodyName);
+        if (!parentBody?.binaryPartner) return null;
+        return {
+          kind: 'body',
+          name: parentBody.binaryPartner.name,
+          body: {
+            name: parentBody.binaryPartner.name,
+            position: { ...mesh.position },
+            radius: parentBody.binaryPartner.radius,
+            isBinaryPartner: true,
+            parentBody: parentBodyName
           }
-        }
-        
-        // Check if it's a body (LOD child)
-        if (clickedMesh.userData.parentLOD) {
-          const lodIndex = bodyMeshesRef.current.indexOf(clickedMesh.userData.parentLOD);
-          if (lodIndex !== -1) {
-            const clickedBody = bodiesRef.current[lodIndex];
-            setSelectedBody(clickedBody);
-            setIsInfoVisible(true);
-            return;
-          }
-        }
-        
-        // Direct LOD match (fallback)
-        const bodyIndex = bodyMeshesRef.current.indexOf(clickedMesh);
-        if (bodyIndex !== -1) {
-          const clickedBody = bodiesRef.current[bodyIndex];
-          setSelectedBody(clickedBody);
-          setIsInfoVisible(true);
-        } else if (clickedMesh.userData && clickedMesh.userData.probeId) {
-          // It's a probe mesh - find probe by ID (works for both main mesh and glow mesh)
-          const clickedProbe = probesRef.current.find(p => p.id === clickedMesh.userData.probeId);
-          if (clickedProbe) {
-            setSelectedBody(clickedProbe);
-            setIsInfoVisible(true);
-          }
+        };
+      }
+
+      if (mesh.userData.parentLOD) {
+        const lodIndex = bodyMeshesRef.current.indexOf(mesh.userData.parentLOD);
+        if (lodIndex !== -1) {
+          const body = bodiesRef.current[lodIndex];
+          if (body) return { kind: 'body', name: body.name, body };
         }
       }
-    }
 
-    renderer.domElement.addEventListener('click', onClick);
+      const bodyIndex = bodyMeshesRef.current.indexOf(mesh);
+      if (bodyIndex !== -1) {
+        const body = bodiesRef.current[bodyIndex];
+        if (body) return { kind: 'body', name: body.name, body };
+      }
+
+      if (mesh.userData?.probeId) {
+        const probe = probesRef.current.find(p => p.id === mesh.userData.probeId);
+        if (probe) return { kind: 'probe', name: probe.name, body: probe };
+      }
+
+      return null;
+    };
+
+    // --- Pointer handling -------------------------------------------------
+    // A click only selects when the pointer barely moved; otherwise the press
+    // was an orbit drag and releasing over a planet should not hijack the view.
+    const DRAG_SLOP_PX = 6;
+    const HOVER_THROTTLE_MS = 60;
+    let pressOrigin = null;
+    let lastHoverCheck = 0;
+    let hoveredName = null;
+
+    const setCursor = (cursor) => {
+      if (renderer.domElement.style.cursor !== cursor) {
+        renderer.domElement.style.cursor = cursor;
+      }
+    };
+
+    const clearHover = () => {
+      if (hoveredName !== null) {
+        hoveredName = null;
+        hoverApiRef.current?.(null);
+      }
+    };
+
+    const onPointerDown = (event) => {
+      if (event.button !== 0) {
+        pressOrigin = null;
+        return;
+      }
+      pressOrigin = { x: event.clientX, y: event.clientY, id: event.pointerId };
+      clearHover();
+      setCursor('grabbing');
+    };
+
+    const onPointerUp = (event) => {
+      const origin = pressOrigin;
+      pressOrigin = null;
+      setCursor('grab');
+      if (!origin || origin.id !== event.pointerId) return;
+
+      const travelled = Math.hypot(event.clientX - origin.x, event.clientY - origin.y);
+      if (travelled > DRAG_SLOP_PX) return; // camera drag, not a selection
+
+      const pick = resolvePick(meshAtPointer(event.clientX, event.clientY));
+      if (pick) {
+        setSelectedBody(pick.body);
+        setIsInfoVisible(true);
+      }
+    };
+
+    const onPointerMove = (event) => {
+      if (event.pointerType === 'touch') return; // no hover affordance on touch
+      if (pressOrigin) return; // mid-drag
+
+      const now = performance.now();
+      if (now - lastHoverCheck < HOVER_THROTTLE_MS) return;
+      lastHoverCheck = now;
+
+      const pick = resolvePick(meshAtPointer(event.clientX, event.clientY));
+      if (!pick) {
+        setCursor('grab');
+        clearHover();
+        return;
+      }
+
+      hoveredName = pick.name;
+      setCursor('pointer');
+      hoverApiRef.current?.({
+        name: pick.name,
+        subtitle: pick.kind === 'probe' ? 'Probe' : PLANET_INFO[pick.name]?.type,
+        x: event.clientX,
+        y: event.clientY
+      });
+    };
+
+    const onPointerLeave = () => {
+      pressOrigin = null;
+      clearHover();
+      setCursor('grab');
+    };
+
+    setCursor('grab');
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointerup', onPointerUp);
+    renderer.domElement.addEventListener('pointermove', onPointerMove);
+    renderer.domElement.addEventListener('pointerleave', onPointerLeave);
+    renderer.domElement.addEventListener('pointercancel', onPointerLeave);
     scene.add(createStarfield());
 
     // Initialize bodies based on current level
@@ -965,10 +1116,6 @@ const PlanetariumScene = () => {
         return body;
       });
 
-      if (level.cameraPosition) {
-        camera.position.set(level.cameraPosition.x, level.cameraPosition.y, level.cameraPosition.z);
-        controls.target.set(0, 0, 0);
-      }
     }
 
     // Add IDs to bodies
@@ -1576,7 +1723,8 @@ const PlanetariumScene = () => {
       // Labels will be added via the PlanetLabels component
     }
     
-    safeSetLoadingStatus('Starting physics simulation...');
+    safeSetLoadingStatus('Starting physics simulation…');
+    safeSetProgress(90);
 
     // Initialize physics worker after a short delay to ensure it's ready
     setTimeout(() => {
@@ -1602,8 +1750,9 @@ const PlanetariumScene = () => {
       }
       
       // Loading complete - show the simulation
-      safeSetLoadingStatus('Ready!');
-      setTimeout(() => safeSetIsLoading(false), 200);
+      safeSetLoadingStatus('Ready');
+      safeSetProgress(100);
+      setTimeout(() => safeSetIsLoading(false), 250);
     }, 100);
 
     // Calculate orbit paths - simple circular orbits for stable systems,
@@ -1779,8 +1928,13 @@ const PlanetariumScene = () => {
     
     let orbitInitTimeout = setTimeout(initializeOrbits, initDelay);
 
-    // Set initial camera position
-    camera.position.z = 75;
+    // Set the opening shot from the level definition - a raised three-quarter view
+    // reads far better than the flat, edge-on framing a plain z-offset gives.
+    const openingShot = level.cameraPosition || { x: 0, y: 200, z: 400 };
+    camera.position.set(openingShot.x, openingShot.y, openingShot.z);
+    controls.target.set(0, 0, 0);
+    camera.lookAt(controls.target);
+    controls.update();
 
     const animate = () => {
       requestAnimationFrame(animate);
@@ -2164,21 +2318,27 @@ const PlanetariumScene = () => {
         }
       }
 
-      // Update planet labels positions in real-time
+      // Update planet labels in real-time. Sprites are sized in world units, so
+      // scale them with camera distance to hold a roughly constant screen size -
+      // otherwise a label swallows the screen the moment you fly up to a planet.
       if (labelsRef.current.length > 0) {
         labelsRef.current.forEach((label, index) => {
-          if (label && bodyMeshesRef.current[index]) {
-            const mesh = bodyMeshesRef.current[index];
-            const body = bodiesRef.current[index];
-            if (mesh && body && mesh.position) {
-              const offset = body.radius * 2 + 5;
-              label.position.set(
-                mesh.position.x,
-                mesh.position.y + offset,
-                mesh.position.z
-              );
-            }
-          }
+          const mesh = bodyMeshesRef.current[index];
+          const body = bodiesRef.current[index];
+          if (!label || !mesh?.position || !body) return;
+
+          const distance = camera.position.distanceTo(mesh.position);
+          // ~2.7% of the viewport height, derived from the camera's vertical FOV.
+          const aspect = label.userData.aspect || 4;
+          const height = THREE.MathUtils.clamp(distance * 0.042, 0.4, 400);
+          label.scale.set(height * aspect, height, 1);
+
+          const offset = body.radius * 1.4 + height * 1.1;
+          label.position.set(
+            mesh.position.x,
+            mesh.position.y + offset,
+            mesh.position.z
+          );
         });
       }
       
@@ -2326,32 +2486,91 @@ const PlanetariumScene = () => {
       return [...otherBodies, centralBody];
     };
     
+    const focusBodyByName = (bodyName) => {
+      if (!setCameraTargetNameRef.current) return;
+      setCameraTargetNameRef.current((current) => {
+        if (current === bodyName) {
+          pushToastRef.current?.('Camera released', { icon: '📷' });
+          return null;
+        }
+        pushToastRef.current?.(`Following ${bodyName}`, { icon: '📷' });
+        return bodyName;
+      });
+    };
+
+    const nudgeTimeScale = (delta) => {
+      setTimeScale(prev => Math.max(MIN_TIME_SCALE, Math.min(MAX_TIME_SCALE, prev + delta)));
+    };
+
     const handleKeyDown = (e) => {
       // Don't handle keys if user is typing in an input
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-      
-      if (e.key === ' ' || e.key === 'Spacebar') {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const key = e.key;
+
+      if (key === 'Escape') {
+        // Peel back one layer at a time: help, then the info panel, then the camera lock.
+        if (isHelpOpenRef.current) {
+          setIsHelpOpen(false);
+        } else if (isInfoVisibleRef.current) {
+          setIsInfoVisible(false);
+        } else if (cameraTargetNameRef.current) {
+          setCameraTargetNameRef.current?.(null);
+        }
+        return;
+      }
+
+      if (key === '?' || key === '/' || key.toLowerCase() === 'h') {
+        e.preventDefault();
+        setIsHelpOpen(prev => !prev);
+        return;
+      }
+
+      if (key.toLowerCase() === 'o') {
+        setShowOrbits(prev => !prev);
+        return;
+      }
+
+      if (key.toLowerCase() === 'l') {
+        setShowLabels(prev => !prev);
+        return;
+      }
+
+      if (key.toLowerCase() === 'c') {
+        setIsControlsOpen(prev => !prev);
+        return;
+      }
+
+      if (key.toLowerCase() === 'd') {
+        setDebugMode(prev => !prev);
+        return;
+      }
+
+      if (key === '-' || key === '_') {
+        nudgeTimeScale(e.shiftKey ? -TIME_SCALE_STEP * 10 : -TIME_SCALE_STEP);
+        return;
+      }
+
+      if (key === '=' || key === '+') {
+        nudgeTimeScale(e.shiftKey ? TIME_SCALE_STEP * 10 : TIME_SCALE_STEP);
+        return;
+      }
+
+      if (key === ' ' || key === 'Spacebar') {
         // Spacebar to pause/unpause
         e.preventDefault();
         setIsPaused(prev => !prev);
-      } else if (e.key === '0') {
+      } else if (key === '0') {
         // Unlock camera
         if (setCameraTargetNameRef.current) {
           setCameraTargetNameRef.current(null);
         }
-      } else if (e.key >= '1' && e.key <= '9') {
+      } else if (key >= '1' && key <= '9') {
         const bodyOrder = getLevelBodyOrder();
-        const index = parseInt(e.key) - 1;
-        if (index < bodyOrder.length && setCameraTargetNameRef.current) {
-          const bodyName = bodyOrder[index];
-          // Toggle: if already focused, unlock; otherwise focus
-          setCameraTargetNameRef.current((current) => {
-            if (current === bodyName) {
-              return null; // Unlock if already focused
-            } else {
-              return bodyName; // Focus on new body
-            }
-          });
+        const index = parseInt(key, 10) - 1;
+        if (index < bodyOrder.length) {
+          focusBodyByName(bodyOrder[index]);
         }
       }
     };
@@ -2372,7 +2591,11 @@ const PlanetariumScene = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('resize', handleResize);
-      renderer.domElement.removeEventListener('click', onClick);
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+      renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      renderer.domElement.removeEventListener('pointermove', onPointerMove);
+      renderer.domElement.removeEventListener('pointerleave', onPointerLeave);
+      renderer.domElement.removeEventListener('pointercancel', onPointerLeave);
       renderer.domElement.removeEventListener('wheel', onCameraZoom);
       if (zoomTimeout) clearTimeout(zoomTimeout);
       mountRef.current?.removeChild(renderer.domElement);
@@ -2634,13 +2857,24 @@ const PlanetariumScene = () => {
     return () => clearInterval(interval);
   }, [selectedBody]);
 
+  const handleMissionComplete = useCallback((mission) => {
+    pushToastRef.current?.(`Mission complete: ${mission.title}`, {
+      icon: '🎯',
+      tone: 'success',
+      detail: mission.description,
+      duration: 5000
+    });
+  }, []);
+
   // Camera preset handler
   const handleCameraPreset = useCallback((planetName) => {
     // If clicking the same planet, unlock camera. Otherwise, focus on new planet.
     if (cameraTargetName === planetName) {
       setCameraTargetName(null);
+      pushToastRef.current?.('Camera released', { icon: '📷' });
     } else {
       setCameraTargetName(planetName);
+      pushToastRef.current?.(`Following ${planetName}`, { icon: '📷' });
     }
     setIsInfoVisible(false);
   }, [cameraTargetName]);
@@ -2769,22 +3003,22 @@ const PlanetariumScene = () => {
       
       {/* Loading overlay - shown until ready */}
       {(!isClient || isLoading) && (
-        <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-50">
-          <div className="text-white text-2xl font-bold mb-4">Gravity Assist</div>
-          <div className="w-64 h-2 bg-gray-800 rounded-full overflow-hidden mb-4">
-            <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '60%' }} />
-          </div>
-          <div className="text-gray-400 text-sm">{isClient ? loadingStatus : 'Initializing...'}</div>
-        </div>
+        <LoadingScreen
+          progress={isClient ? loadProgress : 0}
+          status={isClient ? loadingStatus : 'Initializing…'}
+        />
       )}
       
       {/* Unified UI Panel - contains Missions, Probe Launcher, and Camera Presets */}
       {isClient && !isLoading && (
         <UnifiedUI
           simulationMode={simulationMode}
+          open={isControlsOpen}
+          onOpenChange={setIsControlsOpen}
           missionsProps={{
             probes: probesRef.current,
-            bodies: bodiesRef.current
+            bodies: bodiesRef.current,
+            onMissionComplete: handleMissionComplete
           }}
           probeLauncherProps={{
             earth: earthData,
@@ -2827,149 +3061,35 @@ const PlanetariumScene = () => {
 
       {/* Bottom control bar */}
       {isClient && !isLoading && (
-      <div className="fixed bottom-2 sm:bottom-4 left-1/2 transform -translate-x-1/2 bg-gradient-to-br from-slate-900/95 via-slate-800/95 to-slate-900/95 backdrop-blur-xl text-white rounded-lg px-2 sm:px-3 py-2 flex gap-1 sm:gap-1.5 items-center shadow-2xl border border-slate-700/50 z-[200] max-w-[95vw]">
-        <button
-          onClick={() => {
-            setTimeScale(prev => Math.max(MIN_TIME_SCALE, prev - TIME_SCALE_STEP * 10));
-          }}
-          className="bg-slate-700/50 hover:bg-slate-600/50 active:bg-slate-500/50 px-2 sm:px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500 touch-manipulation flex-shrink-0"
-          title="Major Decrease"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 20l-7-8 7-8M12 20l-7-8 7-8" />
-          </svg>
-        </button>
-
-        <button
-          onClick={() => {
-            setTimeScale(prev => Math.max(MIN_TIME_SCALE, prev - TIME_SCALE_STEP));
-          }}
-          className="bg-slate-700/50 hover:bg-slate-600/50 active:bg-slate-500/50 px-2 sm:px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500 touch-manipulation flex-shrink-0"
-          title="Slight Decrease"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-
-        <button
-          onClick={() => {
-            setIsPaused(prev => !prev);
-          }}
-          className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 active:from-blue-700 active:to-purple-700 px-3 py-1.5 rounded-lg font-semibold text-sm transition-all duration-200 shadow-lg hover:shadow-blue-500/50 active:scale-95 touch-manipulation flex-shrink-0"
-          title="Pause / Resume"
-        >
-          {isPaused ? (
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4 inline-block">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v18l15-9L5 3z" />
-            </svg>
-          ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4 inline-block">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 4h4v16H6zM14 4h4v16h-4z" />
-            </svg>
-          )}
-        </button>
-
-        <button
-          onClick={() => {
-            setTimeScale(prev => Math.min(MAX_TIME_SCALE, prev + TIME_SCALE_STEP));
-          }}
-          className="bg-slate-700/50 hover:bg-slate-600/50 active:bg-slate-500/50 px-2 sm:px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500 touch-manipulation flex-shrink-0"
-          title="Slight Increase"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-
-        <button
-          onClick={() => {
-            setTimeScale(prev => Math.min(MAX_TIME_SCALE, prev + TIME_SCALE_STEP * 10));
-          }}
-          className="bg-slate-700/50 hover:bg-slate-600/50 active:bg-slate-500/50 px-2 sm:px-2.5 py-1.5 rounded-lg transition-all duration-200 border border-slate-600/50 hover:border-slate-500 touch-manipulation flex-shrink-0"
-          title="Major Increase"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 4l7 8-7 8M12 4l7 8-7 8" />
-          </svg>
-        </button>
-
-        <div className="relative group mx-1 sm:mx-3 font-mono inline-block flex-shrink-0" style={{ isolation: 'isolate' }}>
-          <div className="text-xs sm:text-sm text-slate-200 cursor-pointer font-semibold whitespace-nowrap py-1">
-            <span className="hidden sm:inline">Speed: </span><span className="text-blue-400">{timeScale}</span>
-          </div>
-          <div className="fixed bottom-16 left-1/2 -translate-x-1/2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 px-4 py-3 w-56 bg-slate-800/95 backdrop-blur-xl rounded-lg border border-slate-700/50 shadow-2xl z-[300]">
-            <input
-              type="range"
-              min={MIN_TIME_SCALE}
-              max={MAX_TIME_SCALE}
-              step={TIME_SCALE_STEP}
-              value={timeScale}
-              onChange={e => setTimeScale(Number(e.target.value))}
-              className="w-full h-2 touch-manipulation"
-            />
-            <div className="flex justify-between text-xs text-slate-400 mt-1">
-              <span>{MIN_TIME_SCALE}</span>
-              <span>{MAX_TIME_SCALE}</span>
-            </div>
-          </div>
-        </div>
-
-        <button
-          onClick={() => setShowOrbits(!showOrbits)}
-          className={`px-2 sm:px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200 border touch-manipulation flex-shrink-0 ${
-            showOrbits 
-              ? 'bg-gradient-to-r from-green-600 to-emerald-600 border-green-500/50' 
-              : 'bg-slate-700/50 border-slate-600/50'
-          }`}
-          title="Toggle Orbit Paths"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-5 h-5">
-            <circle cx="12" cy="12" r="10" />
-          </svg>
-        </button>
-
-        {simulationMode === 'solarSystem' && (
-          <button
-            onClick={() => setShowLabels(!showLabels)}
-            className={`px-2 sm:px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200 border touch-manipulation flex-shrink-0 ${
-              showLabels 
-                ? 'bg-gradient-to-r from-green-600 to-emerald-600 border-green-500/50' 
-                : 'bg-slate-700/50 border-slate-600/50'
-            }`}
-            title="Toggle Planet Labels"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h10m-7 4h7" />
-            </svg>
-          </button>
-        )}
-
-        <button
-          onClick={() => setDebugMode(!debugMode)}
-          className={`hidden sm:block px-2 sm:px-3 py-1.5 rounded-lg text-sm font-semibold transition-all duration-200 border touch-manipulation flex-shrink-0 ${
-            debugMode 
-              ? 'bg-gradient-to-r from-amber-600 to-orange-600 border-amber-500/50' 
-              : 'bg-slate-700/50 border-slate-600/50 text-slate-400'
-          }`}
-          title="Toggle Debug Mode"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-          </svg>
-        </button>
-
-        <button
-          onClick={() => setIsInfoPopupVisible(true)}
-          className="px-2 sm:px-3 py-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all border border-slate-600/50 touch-manipulation flex-shrink-0"
-          title="Controls Information"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" className="w-4 h-4">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 18a6 6 0 100-12 6 6 0 000 12z" />
-          </svg>
-        </button>
-      </div>
+        <ControlBar
+          timeScale={timeScale}
+          onTimeScaleChange={setTimeScale}
+          minTimeScale={MIN_TIME_SCALE}
+          maxTimeScale={MAX_TIME_SCALE}
+          timeScaleStep={TIME_SCALE_STEP}
+          isPaused={isPaused}
+          onTogglePause={() => setIsPaused(prev => !prev)}
+          showOrbits={showOrbits}
+          onToggleOrbits={() => setShowOrbits(prev => !prev)}
+          showLabels={showLabels}
+          onToggleLabels={() => setShowLabels(prev => !prev)}
+          labelsAvailable={simulationMode === 'solarSystem'}
+          debugMode={debugMode}
+          onToggleDebug={() => setDebugMode(prev => !prev)}
+          onOpenHelp={() => setIsHelpOpen(true)}
+        />
       )}
+
+      {/* Camera lock indicator */}
+      {isClient && !isLoading && (
+        <FocusBadge targetName={cameraTargetName} onRelease={() => setCameraTargetName(null)} />
+      )}
+
+      {/* Hover readout - owns its own state so pointer moves don't re-render the scene */}
+      {isClient && !isLoading && <HoverLabelHost apiRef={hoverApiRef} />}
+
+      {/* Transient notifications */}
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
 
       {/* Debug Overlay */}
       {isClient && !isLoading && debugMode && (
@@ -3046,69 +3166,18 @@ const PlanetariumScene = () => {
         </div>
       )}
 
-      {isClient && !isLoading && isInfoPopupVisible && (
-        <div
-          className="fixed inset-0 bg-black/70 flex justify-center items-start p-4 sm:p-10 pt-10 sm:pt-20 z-50 overflow-auto"
-          onClick={() => setIsInfoPopupVisible(false)}
-        >
-          <div
-            className="bg-black opacity-70 rounded-lg shadow-xl max-w-5xl w-full max-h-[calc(100vh-80px)] p-4 sm:p-6 relative overflow-auto"
-            onClick={e => e.stopPropagation()}
-            style={{ minWidth: 'auto' }}
-          >
-            <button
-              onClick={() => setIsInfoPopupVisible(false)}
-              className="absolute top-2 sm:top-4 right-2 sm:right-4 text-white hover:text-gray-300 text-2xl sm:text-3xl font-bold p-2 touch-manipulation"
-              title="Close"
-            >
-              &times;
-            </button>
+      {/* Help & keyboard shortcuts */}
+      {isClient && <HelpDialog open={isHelpOpen} onOpenChange={setIsHelpOpen} />}
 
-            <h2 className="text-xl sm:text-3xl font-bold mb-4 sm:mb-6 text-white pr-10">Solar System Explorer - Controls</h2>
-            
-            <div className="space-y-4 sm:space-y-6 text-white">
-              <div>
-                <h3 className="text-lg sm:text-xl font-semibold mb-2 sm:mb-3 text-blue-400">Navigation</h3>
-                <ul className="list-disc list-inside space-y-1 sm:space-y-2 text-sm sm:text-lg leading-relaxed">
-                  <li><strong>Touch/Mouse:</strong> Drag to rotate camera, pinch/scroll to zoom</li>
-                  <li><strong>Keyboard:</strong> Press 1-9 to focus on bodies, 0 to reset view</li>
-                  <li><strong>Camera Presets:</strong> Use the panel to quickly jump to any planet</li>
-                  <li><strong>Tap/Click Planets:</strong> Tap any planet to see detailed information</li>
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="text-lg sm:text-xl font-semibold mb-2 sm:mb-3 text-green-400">Simulation Controls</h3>
-                <ul className="list-disc list-inside space-y-1 sm:space-y-2 text-sm sm:text-lg leading-relaxed">
-                  <li><strong>Pause/Resume:</strong> Tap the pause button to stop/start simulation</li>
-                  <li><strong>Speed Control:</strong> Use +/- buttons or tap "Speed" for slider</li>
-                  <li><strong>Orbit Paths:</strong> Toggle to show/hide predicted orbital paths</li>
-                  <li><strong>Planet Labels:</strong> Toggle to show/hide planet name labels</li>
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="text-lg sm:text-xl font-semibold mb-2 sm:mb-3 text-yellow-400">Probe Missions</h3>
-                <ul className="list-disc list-inside space-y-1 sm:space-y-2 text-sm sm:text-lg leading-relaxed">
-                  <li><strong>Launch Probes:</strong> Use Probe Launcher to launch from Earth</li>
-                  <li><strong>Mission Objectives:</strong> Check Missions panel for challenges</li>
-                  <li><strong>Trajectory Preview:</strong> Orange line shows predicted probe path</li>
-                  <li><strong>Gravity Assists:</strong> Plan trajectories to use planetary gravity</li>
-                </ul>
-              </div>
-
-              <div>
-                <h3 className="text-lg sm:text-xl font-semibold mb-2 sm:mb-3 text-purple-400">Educational Features</h3>
-                <ul className="list-disc list-inside space-y-1 sm:space-y-2 text-sm sm:text-lg leading-relaxed">
-                  <li><strong>Planet Information:</strong> Tap planets to learn facts and statistics</li>
-                  <li><strong>Orbital Mechanics:</strong> Watch how planets orbit and interact</li>
-                  <li><strong>Scale Visualization:</strong> See accurate distances and sizes</li>
-                  <li><strong>Time Controls:</strong> Speed up time to see long-term orbital patterns</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* First-run orientation */}
+      {isClient && !isLoading && showWelcome && (
+        <WelcomeOverlay
+          onDismiss={dismissWelcome}
+          onOpenHelp={() => {
+            dismissWelcome();
+            setIsHelpOpen(true);
+          }}
+        />
       )}
     </>
   );

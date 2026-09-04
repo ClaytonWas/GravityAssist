@@ -27,11 +27,26 @@ Open [http://localhost:3000](http://localhost:3000) to view the simulation.
 
 ## Controls
 
-- **Rotate**: Left-click + drag
-- **Pan**: Right-click + drag
-- **Zoom**: Scroll wheel
-- **Select planet**: Click on planet label
-- **Keyboard**: 1-9 to focus on bodies, 0 to reset view
+**Mouse / touch**
+
+- **Orbit**: left-click + drag (dragging never selects — only a click does)
+- **Pan**: right-click + drag
+- **Zoom**: scroll wheel or pinch
+- **Select**: hover a body for its name, click for the full info panel
+
+**Keyboard**
+
+| Key | Action |
+| --- | --- |
+| `Space` | Pause / resume |
+| `-` / `=` | Slow down / speed up (hold `Shift` for big steps) |
+| `1`–`9` | Follow a body (press again to release) |
+| `0` / `Esc` | Release the camera / close panels |
+| `C` | Toggle the controls panel |
+| `O` | Toggle orbit paths |
+| `L` | Toggle planet labels |
+| `D` | Toggle performance stats |
+| `?` | Help & shortcuts |
 
 ## Tech Stack
 

@@ -3,6 +3,45 @@
 import { useRef, useEffect } from 'react';
 import * as THREE from 'three';
 
+const CANVAS_WIDTH = 512;
+const CANVAS_HEIGHT = 128;
+const ASPECT = CANVAS_WIDTH / CANVAS_HEIGHT;
+
+function drawLabel(canvas, name) {
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const pad = 8;
+  const w = canvas.width - pad * 2;
+  const h = canvas.height - pad * 2;
+  const radius = h / 2;
+
+  // Rounded translucent pill instead of a hard black rectangle
+  ctx.beginPath();
+  ctx.moveTo(pad + radius, pad);
+  ctx.lineTo(pad + w - radius, pad);
+  ctx.arcTo(pad + w, pad, pad + w, pad + radius, radius);
+  ctx.lineTo(pad + w, pad + h - radius);
+  ctx.arcTo(pad + w, pad + h, pad + w - radius, pad + h, radius);
+  ctx.lineTo(pad + radius, pad + h);
+  ctx.arcTo(pad, pad + h, pad, pad + h - radius, radius);
+  ctx.lineTo(pad, pad + radius);
+  ctx.arcTo(pad, pad, pad + radius, pad, radius);
+  ctx.closePath();
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '600 54px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(name, canvas.width / 2, canvas.height / 2 + 2);
+}
+
 export default function PlanetLabels({ bodies, bodyMeshes, camera, scene, labelsRef: externalLabelsRef }) {
   const internalLabelsRef = useRef([]);
   const labelsRef = externalLabelsRef || internalLabelsRef;
@@ -15,34 +54,28 @@ export default function PlanetLabels({ bodies, bodyMeshes, camera, scene, labels
       const mesh = bodyMeshes[index];
       if (!mesh) return;
 
-      let label = labelsRef.current[index];
-      
-      if (!label) {
-        // Create canvas for text
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        canvas.width = 256;
-        canvas.height = 64;
-        
-        // Draw text
-        context.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        context.fillRect(0, 0, canvas.width, canvas.height);
-        context.fillStyle = 'white';
-        context.font = 'bold 32px Arial';
-        context.textAlign = 'center';
-        context.textBaseline = 'middle';
-        context.fillText(body.name, canvas.width / 2, canvas.height / 2);
-        
-        // Create texture and sprite
-        const texture = new THREE.CanvasTexture(canvas);
-        const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
-        const sprite = new THREE.Sprite(spriteMaterial);
-        sprite.scale.set(10, 2.5, 1);
-        sprite.userData.bodyName = body.name;
-        sprite.userData.bodyIndex = index;
-        scene.add(sprite);
-        labelsRef.current[index] = sprite;
-      }
+      if (labelsRef.current[index]) return;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = CANVAS_WIDTH;
+      canvas.height = CANVAS_HEIGHT;
+      drawLabel(canvas, body.name);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.minFilter = THREE.LinearFilter;
+      const spriteMaterial = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false
+      });
+      const sprite = new THREE.Sprite(spriteMaterial);
+      sprite.scale.set(10, 10 / ASPECT, 1);
+      sprite.renderOrder = 10;
+      sprite.userData.bodyName = body.name;
+      sprite.userData.bodyIndex = index;
+      sprite.userData.aspect = ASPECT;
+      scene.add(sprite);
+      labelsRef.current[index] = sprite;
     });
 
     // Remove labels for bodies that no longer exist
@@ -81,4 +114,3 @@ export default function PlanetLabels({ bodies, bodyMeshes, camera, scene, labels
 
   return null; // This component doesn't render anything in React
 }
-

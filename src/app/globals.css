@@ -46,6 +46,11 @@
   to { opacity: 0; }
 }
 
+@keyframes slideDownFade {
+  from { transform: translateY(-8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
 .animate-slideInRight {
   animation: slideInRight 0.3s ease-out;
 }
@@ -60,6 +65,26 @@
 
 .animate-slideUp {
   animation: slideUp 0.2s ease-in;
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.animate-slideDownFade {
+  animation: slideDownFade 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Respect users who ask for less motion */
+@media (prefers-reduced-motion: reduce) {
+  .animate-slideInRight,
+  .animate-slideOutRight,
+  .animate-slideDown,
+  .animate-slideUp,
+  .animate-fadeIn,
+  .animate-slideDownFade {
+    animation: none;
+  }
 }
 
 /* Custom breakpoint for extra small screens */
