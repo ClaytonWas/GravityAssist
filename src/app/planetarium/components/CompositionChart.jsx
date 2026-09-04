@@ -59,28 +59,16 @@ const CompositionChart = ({ data, size = 200, onSegmentHover, onSegmentLeave, pa
       ref={containerRef}
       className="flex items-center justify-center relative w-full h-full"
     >
-      {/* Glow effect behind chart */}
-      <div 
-        className="absolute inset-0 rounded-full blur-xl opacity-20"
-        style={{
-          background: `radial-gradient(circle, ${data[0]?.color || '#4A90E2'}40 0%, transparent 70%)`
-        }}
-      />
-      
       <div style={{ height: `${chartSize}px`, width: `${chartSize}px`, margin: 'auto' }}>
         <ResponsivePie
           data={data}
           margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
           innerRadius={0.65}
           padAngle={1.5}
-          cornerRadius={6}
-          activeOuterRadiusOffset={10}
+          cornerRadius={2}
+          activeOuterRadiusOffset={8}
           colors={{ datum: 'data.color' }}
-          borderWidth={3}
-          borderColor={{
-            from: 'color',
-            modifiers: [['darker', 0.4], ['opacity', 0.8]]
-          }}
+          borderWidth={0}
           enableArcLinkLabels={false}
           enableArcLabels={false}
           onMouseEnter={(datum, event) => {
@@ -94,18 +82,15 @@ const CompositionChart = ({ data, size = 200, onSegmentHover, onSegmentLeave, pa
             }
           }}
           tooltip={({ datum }) => (
-            <div className="bg-gradient-to-br from-slate-800/98 to-slate-900/98 backdrop-blur-xl border border-slate-600/60 rounded-lg px-4 py-2.5 shadow-2xl ring-1 ring-slate-700/50">
-              <div className="flex items-center gap-2.5">
-                <div 
-                  className="w-3.5 h-3.5 rounded-full ring-2 ring-white/20 shadow-lg" 
-                  style={{ 
-                    backgroundColor: datum.color,
-                    boxShadow: `0 0 12px ${datum.color}80`
-                  }}
+            <div className="bg-surface/98 backdrop-blur-md border border-line rounded-md px-3 py-2 shadow-lg">
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: datum.color }}
                 />
-                <span className="text-sm font-bold text-white">{datum.label}</span>
+                <span className="text-sm text-fg">{datum.label}</span>
               </div>
-              <div className="text-xs font-semibold text-slate-300 mt-1.5 ml-6">
+              <div className="text-xs text-muted mt-1 ml-[1.125rem]">
                 {datum.value.toFixed(2)}%
               </div>
             </div>
@@ -115,7 +100,7 @@ const CompositionChart = ({ data, size = 200, onSegmentHover, onSegmentLeave, pa
             text: {
               fontFamily: 'inherit',
               fontSize: 12,
-              fill: '#e2e8f0'
+              fill: '#b7bdc5'
             },
             tooltip: {
               container: {

@@ -29,14 +29,15 @@ function drawLabel(canvas, name) {
   ctx.arcTo(pad, pad, pad + radius, pad, radius);
   ctx.closePath();
 
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
+  // Matches the UI palette: surface fill, hairline border, primary text.
+  ctx.fillStyle = 'rgba(18, 20, 23, 0.8)';
   ctx.fill();
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+  ctx.strokeStyle = 'rgba(51, 58, 68, 0.9)';
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '600 54px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+  ctx.fillStyle = '#e9ebee';
+  ctx.font = '500 52px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(name, canvas.width / 2, canvas.height / 2 + 2);

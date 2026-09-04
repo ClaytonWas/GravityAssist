@@ -8,7 +8,7 @@
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
   }
-  
+
   body {
     overscroll-behavior: none;
     -webkit-overflow-scrolling: touch;
@@ -96,47 +96,54 @@
   }
 }
 
-/* Improved range input styling for mobile */
+/* Range inputs, styled to match the flat UI palette */
 @layer components {
   input[type="range"] {
     -webkit-appearance: none;
     appearance: none;
-    background: rgba(71, 85, 105, 0.5);
-    border-radius: 0.5rem;
+    background: #242830;
+    border-radius: 9999px;
+    height: 4px;
     cursor: pointer;
   }
-  
+
   input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    background: #e9ebee;
     cursor: pointer;
-    border: 2px solid rgba(255, 255, 255, 0.2);
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    border: none;
   }
-  
+
   input[type="range"]::-moz-range-thumb {
-    width: 20px;
-    height: 20px;
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    background: #e9ebee;
     cursor: pointer;
-    border: 2px solid rgba(255, 255, 255, 0.2);
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    border: none;
   }
-  
+
+  input[type="range"]:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px rgba(110, 155, 216, 0.5);
+  }
+
+  input[type="range"]:focus-visible::-moz-range-thumb {
+    box-shadow: 0 0 0 3px rgba(110, 155, 216, 0.5);
+  }
+
   @media (min-width: 640px) {
     input[type="range"]::-webkit-slider-thumb {
-      width: 16px;
-      height: 16px;
+      width: 14px;
+      height: 14px;
     }
-    
+
     input[type="range"]::-moz-range-thumb {
-      width: 16px;
-      height: 16px;
+      width: 14px;
+      height: 14px;
     }
   }
 }
@@ -150,23 +157,21 @@
   }
 
   .custom-scrollbar::-webkit-scrollbar-track {
-    background: rgba(15, 23, 42, 0.5);
-    border-radius: 4px;
+    background: transparent;
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, rgba(59, 130, 246, 0.6), rgba(147, 51, 234, 0.6));
+    background: #333a44;
     border-radius: 4px;
-    border: 1px solid rgba(30, 41, 59, 0.3);
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: linear-gradient(180deg, rgba(59, 130, 246, 0.8), rgba(147, 51, 234, 0.8));
+    background: #48505c;
   }
 
   /* Firefox */
   .custom-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: rgba(59, 130, 246, 0.6) rgba(15, 23, 42, 0.5);
+    scrollbar-color: #333a44 transparent;
   }
 }

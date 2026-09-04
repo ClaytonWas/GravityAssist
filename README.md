@@ -29,7 +29,7 @@ Open [http://localhost:3000](http://localhost:3000) to view the simulation.
 
 **Mouse / touch**
 
-- **Orbit**: left-click + drag (dragging never selects — only a click does)
+- **Orbit**: left-click + drag (dragging never selects, only a click does)
 - **Pan**: right-click + drag
 - **Zoom**: scroll wheel or pinch
 - **Select**: hover a body for its name, click for the full info panel
@@ -40,7 +40,7 @@ Open [http://localhost:3000](http://localhost:3000) to view the simulation.
 | --- | --- |
 | `Space` | Pause / resume |
 | `-` / `=` | Slow down / speed up (hold `Shift` for big steps) |
-| `1`–`9` | Follow a body (press again to release) |
+| `1` to `9` | Follow a body (press again to release) |
 | `0` / `Esc` | Release the camera / close panels |
 | `C` | Toggle the controls panel |
 | `O` | Toggle orbit paths |
