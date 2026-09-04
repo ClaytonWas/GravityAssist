@@ -7,6 +7,7 @@ import * as Slider from '@radix-ui/react-slider';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { cn } from '@/lib/utils';
 import { predictTrajectory } from '../core/physics';
+import { MissionIcon, LaunchIcon, CameraIcon, LevelsIcon, CheckIcon, ChevronDownIcon } from './icons';
 
 // ============================================================================
 // MISSIONS TAB CONTENT
@@ -69,34 +70,29 @@ function MissionsContent({ probes, bodies, onMissionComplete }) {
   const completed = missions.filter(m => m.status === 'completed').length;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-slate-400 uppercase tracking-wider font-medium">Progress</span>
-        <span className="text-xs font-bold text-blue-400">{completed}/{missions.length}</span>
+        <span className="text-[11px] text-dim uppercase tracking-wider">Progress</span>
+        <span className="text-[11px] font-mono text-fg-soft">{completed}/{missions.length}</span>
       </div>
       {missions.map(m => (
-        <div
-          key={m.id}
-          className={cn(
-            "p-3 rounded-lg border transition-all",
-            m.status === 'completed' && "bg-emerald-500/10 border-emerald-500/30",
-            m.status === 'in-progress' && "bg-amber-500/10 border-amber-500/30",
-            m.status === 'pending' && "bg-slate-800/50 border-slate-700/50"
-          )}
-        >
-          <div className="flex items-start gap-3">
-            <div className={cn(
-              "w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-xs",
-              m.status === 'completed' && "bg-emerald-500 text-white",
-              m.status === 'in-progress' && "bg-amber-500 text-white animate-pulse",
-              m.status === 'pending' && "bg-slate-700 text-slate-400"
-            )}>
-              {m.status === 'completed' ? '✓' : m.status === 'in-progress' ? '◉' : '○'}
+        <div key={m.id} className="flex items-start gap-3 py-2">
+          <span
+            className={cn(
+              'mt-0.5 w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 border',
+              m.status === 'completed' && 'border-positive text-positive',
+              m.status === 'in-progress' && 'border-caution text-caution',
+              m.status === 'pending' && 'border-line-strong text-transparent'
+            )}
+          >
+            {m.status === 'completed' && <CheckIcon className="w-2.5 h-2.5" />}
+            {m.status === 'in-progress' && <span className="w-1.5 h-1.5 rounded-full bg-caution" />}
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className={cn('text-sm', m.status === 'pending' ? 'text-fg-soft' : 'text-fg')}>
+              {m.title}
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-medium text-sm text-white">{m.title}</div>
-              <div className="text-xs text-slate-400 mt-0.5">{m.description}</div>
-            </div>
+            <div className="text-xs text-dim mt-0.5">{m.description}</div>
           </div>
         </div>
       ))}
@@ -140,7 +136,7 @@ function ProbeLauncherContent({ earth, allBodies, timeScale, onLaunchProbe, onUp
 
   const handleLaunch = () => {
     if (!earth) return;
-    
+
     const azRad = (azimuth[0] * Math.PI) / 180;
     const elRad = (elevation[0] * Math.PI) / 180;
     const dir = {
@@ -162,14 +158,14 @@ function ProbeLauncherContent({ earth, allBodies, timeScale, onLaunchProbe, onUp
   };
 
   if (!earth) {
-    return <div className="text-sm text-slate-400 p-4">Waiting for Earth’s orbital data…</div>;
+    return <div className="text-sm text-muted p-4">Waiting for orbital data from Earth</div>;
   }
 
   return (
     <div className="space-y-5">
-      <p className="text-xs text-slate-400 leading-relaxed">
-        Burns are relative to Earth’s own motion. Arm a launch to see where the probe drifts,
-        then tune the aim until the orange line reaches your target.
+      <p className="text-xs text-muted leading-relaxed">
+        Burns are relative to the motion of Earth. Arm a launch to see where the probe drifts,
+        then tune the aim until the preview line reaches your target.
       </p>
 
       <SliderControl
@@ -204,11 +200,11 @@ function ProbeLauncherContent({ earth, allBodies, timeScale, onLaunchProbe, onUp
         <button
           onClick={() => setIsLaunching(!isLaunching)}
           className={cn(
-            "flex-1 py-2.5 px-4 rounded-lg font-medium text-sm transition-all",
-            "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+            'flex-1 py-2 px-4 rounded-md text-sm transition-colors border',
+            'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
             isLaunching
-              ? "bg-slate-700 hover:bg-slate-600 text-white"
-              : "bg-blue-600 hover:bg-blue-500 text-white"
+              ? 'bg-transparent border-line text-muted hover:text-fg hover:bg-raised'
+              : 'bg-raised border-line-strong text-fg hover:bg-line'
           )}
         >
           {isLaunching ? 'Cancel' : 'Prepare launch'}
@@ -216,16 +212,16 @@ function ProbeLauncherContent({ earth, allBodies, timeScale, onLaunchProbe, onUp
         {isLaunching && (
           <button
             onClick={handleLaunch}
-            className="flex-1 py-2.5 px-4 rounded-lg font-medium text-sm bg-emerald-500 hover:bg-emerald-400 text-white transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+            className="flex-1 py-2 px-4 rounded-md text-sm bg-fg hover:bg-white text-ink transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
           >
-            🚀 Launch
+            Launch
           </button>
         )}
       </div>
 
       {isLaunching && (
-        <p className="text-xs text-amber-400/90 text-center flex items-center justify-center gap-1.5">
-          <span className="w-6 h-0.5 rounded-full bg-amber-500 inline-block" />
+        <p className="text-xs text-muted flex items-center justify-center gap-2">
+          <span className="w-5 h-px bg-caution inline-block" />
           predicted trajectory
         </p>
       )}
@@ -240,8 +236,8 @@ function SliderControl({ label, value, onChange, min, max, step, format }) {
   return (
     <div className="space-y-2">
       <div className="flex justify-between items-center">
-        <label className="text-xs text-slate-400 font-medium">{label}</label>
-        <span className="text-xs font-mono text-blue-400">{format(value[0])}</span>
+        <label className="text-xs text-muted">{label}</label>
+        <span className="text-xs font-mono text-fg-soft">{format(value[0])}</span>
       </div>
       <Slider.Root
         className="relative flex items-center select-none touch-none w-full h-5"
@@ -251,11 +247,11 @@ function SliderControl({ label, value, onChange, min, max, step, format }) {
         max={max}
         step={step}
       >
-        <Slider.Track className="bg-slate-700 relative grow rounded-full h-1.5">
-          <Slider.Range className="absolute bg-gradient-to-r from-blue-500 to-purple-500 rounded-full h-full" />
+        <Slider.Track className="bg-line relative grow rounded-full h-1">
+          <Slider.Range className="absolute bg-line-strong rounded-full h-full" />
         </Slider.Track>
-        <Slider.Thumb 
-          className="block w-4 h-4 bg-white rounded-full shadow-lg border-2 border-blue-500 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900 cursor-grab active:cursor-grabbing transition-colors"
+        <Slider.Thumb
+          className="block w-3.5 h-3.5 bg-fg rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-grab active:cursor-grabbing"
           aria-label={label}
         />
       </Slider.Root>
@@ -268,41 +264,33 @@ function SliderControl({ label, value, onChange, min, max, step, format }) {
 // ============================================================================
 function CameraContent({ cameraPresets, onCameraPreset }) {
   const planets = ['Sun', 'Mercury', 'Venus', 'Earth', 'Mars', 'Jupiter', 'Saturn', 'Uranus', 'Neptune'];
-  
+
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-3 gap-1.5">
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-1">
         {planets.map(name => {
           const body = cameraPresets?.find(b => b?.name === name);
           if (!body) return null;
           return (
-            <Tooltip.Root key={name}>
-              <Tooltip.Trigger asChild>
-                <button
-                  onClick={() => onCameraPreset?.(name)}
-                  className="py-2 px-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-blue-500/50 rounded-lg transition-all text-slate-200 hover:text-white"
-                >
-                  {name}
-                </button>
-              </Tooltip.Trigger>
-              <Tooltip.Portal>
-                <Tooltip.Content
-                  className="bg-slate-800 text-white text-xs py-1.5 px-3 rounded-lg shadow-xl border border-slate-700 z-[200]"
-                  sideOffset={5}
-                >
-                  Focus on {name}
-                  <Tooltip.Arrow className="fill-slate-800" />
-                </Tooltip.Content>
-              </Tooltip.Portal>
-            </Tooltip.Root>
+            <button
+              key={name}
+              onClick={() => onCameraPreset?.(name)}
+              className={cn(
+                'py-2 px-2 text-xs rounded-md border border-transparent transition-colors',
+                'text-muted hover:text-fg hover:bg-raised hover:border-line',
+                'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent'
+              )}
+            >
+              {name}
+            </button>
           );
         })}
       </div>
-      <div className="pt-3 border-t border-slate-700/50">
-        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-2">Keyboard</p>
+      <div className="pt-3 border-t border-line">
+        <p className="text-[10px] text-dim uppercase tracking-wider mb-2">Keyboard</p>
         <div className="flex flex-wrap gap-1">
-          {['1-9: Bodies', '0: Unlock'].map(shortcut => (
-            <span key={shortcut} className="text-[10px] bg-slate-800 text-slate-400 px-2 py-1 rounded font-mono">
+          {['1-9: Bodies', '0: Release'].map(shortcut => (
+            <span key={shortcut} className="text-[10px] bg-raised text-muted px-2 py-1 rounded font-mono">
               {shortcut}
             </span>
           ))}
@@ -317,22 +305,23 @@ function CameraContent({ cameraPresets, onCameraPreset }) {
 // ============================================================================
 function LevelsContent({ currentLevelId, availableLevels, onLevelChange }) {
   if (!availableLevels) return null;
-  
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       {Object.values(availableLevels).map(level => (
         <button
           key={level.id}
           onClick={() => onLevelChange?.(level.id)}
           className={cn(
-            "w-full p-3 rounded-lg text-left transition-all border",
+            'w-full p-2.5 rounded-md text-left transition-colors border',
+            'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
             currentLevelId === level.id
-              ? "bg-blue-500/20 border-blue-500/50 text-white"
-              : "bg-slate-800/50 border-slate-700/50 text-slate-300 hover:bg-slate-700/50 hover:border-slate-600"
+              ? 'bg-raised border-line-strong text-fg'
+              : 'bg-transparent border-transparent text-fg-soft hover:bg-raised hover:border-line'
           )}
         >
-          <div className="font-medium text-sm">{level.name}</div>
-          <div className="text-xs text-slate-400 mt-0.5">{level.description}</div>
+          <div className="text-sm">{level.name}</div>
+          <div className="text-xs text-dim mt-0.5">{level.description}</div>
         </button>
       ))}
     </div>
@@ -342,7 +331,7 @@ function LevelsContent({ currentLevelId, availableLevels, onLevelChange }) {
 // ============================================================================
 // MAIN UNIFIED UI COMPONENT
 // ============================================================================
-export default function UnifiedUI({ 
+export default function UnifiedUI({
   simulationMode,
   open,
   onOpenChange,
@@ -358,40 +347,35 @@ export default function UnifiedUI({
   const [activeTab, setActiveTab] = useState('missions');
 
   const tabs = [
-    { id: 'missions', label: 'Missions', icon: '🎯' },
-    { id: 'probe', label: 'Launch', icon: '🚀' },
-    { id: 'camera', label: 'Camera', icon: '📷' },
-    { id: 'levels', label: 'Levels', icon: '🌌' }
+    { id: 'missions', label: 'Missions', Icon: MissionIcon },
+    { id: 'probe', label: 'Launch', Icon: LaunchIcon },
+    { id: 'camera', label: 'Camera', Icon: CameraIcon },
+    { id: 'levels', label: 'Levels', Icon: LevelsIcon }
   ];
 
   return (
     <Tooltip.Provider delayDuration={200}>
-      <div className="fixed top-4 left-4 z-[100] w-72 max-w-[calc(100vw-2rem)]">
+      <div className="fixed top-4 left-4 z-[100] w-64 max-w-[calc(100vw-2rem)]">
         <Collapsible.Root open={isOpen} onOpenChange={setIsOpen}>
-          <div className="bg-slate-900/95 backdrop-blur-xl rounded-xl border border-slate-700/50 shadow-2xl overflow-hidden">
+          <div className="bg-surface/95 backdrop-blur-md rounded-lg border border-line shadow-lg overflow-hidden">
             {/* Header */}
             <Collapsible.Trigger asChild>
-              <button className="w-full flex items-center justify-between gap-2 p-3 hover:bg-slate-800/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset">
+              <button className="w-full flex items-center justify-between gap-2 px-3 py-2.5 hover:bg-raised transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:ring-inset">
                 <span className="flex items-baseline gap-2 min-w-0">
-                  <span className="font-semibold text-sm text-white">Mission control</span>
+                  <span className="text-sm text-fg">Mission control</span>
                   {!isOpen && (
-                    <span className="text-xs text-slate-500 truncate">
+                    <span className="text-xs text-dim truncate">
                       {tabs.find(t => t.id === activeTab)?.label}
                     </span>
                   )}
                 </span>
                 <span className="flex items-center gap-2 flex-shrink-0">
-                  <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] text-slate-500 font-medium">
+                  <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded bg-raised border border-line text-[10px] text-dim">
                     C
                   </kbd>
-                  <svg 
-                    className={cn("w-4 h-4 text-slate-400 transition-transform duration-200", isOpen && "rotate-180")}
-                    fill="none" 
-                    stroke="currentColor" 
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
+                  <ChevronDownIcon
+                    className={cn('w-4 h-4 text-dim transition-transform duration-200', isOpen && 'rotate-180')}
+                  />
                 </span>
               </button>
             </Collapsible.Trigger>
@@ -399,26 +383,22 @@ export default function UnifiedUI({
             <Collapsible.Content className="data-[state=open]:animate-slideDown data-[state=closed]:animate-slideUp">
               <Tabs.Root value={activeTab} onValueChange={setActiveTab}>
                 {/* Tab List */}
-                <Tabs.List className="flex border-t border-b border-slate-700/50 bg-slate-800/30">
+                <Tabs.List className="flex border-t border-b border-line">
                   {tabs.map(tab => (
                     <Tabs.Trigger
                       key={tab.id}
                       value={tab.id}
                       className={cn(
-                        "flex-1 py-2 flex flex-col items-center gap-0.5 transition-all relative",
-                        "text-slate-400 hover:text-white hover:bg-slate-800/50",
-                        "data-[state=active]:text-white data-[state=active]:bg-slate-800/70",
-                        "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset"
+                        'flex-1 py-2 flex flex-col items-center gap-1 relative transition-colors',
+                        'text-dim hover:text-fg-soft',
+                        'data-[state=active]:text-fg',
+                        'after:absolute after:left-0 after:right-0 after:-bottom-px after:h-px',
+                        'data-[state=active]:after:bg-fg',
+                        'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:ring-inset'
                       )}
                     >
-                      <span className="text-sm leading-none">{tab.icon}</span>
-                      <span className="text-[10px] font-medium leading-none">{tab.label}</span>
-                      <span
-                        className={cn(
-                          "absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 transition-transform duration-200",
-                          activeTab === tab.id ? "scale-x-100" : "scale-x-0"
-                        )} 
-                      />
+                      <tab.Icon className="w-4 h-4" />
+                      <span className="text-[10px] leading-none">{tab.label}</span>
                     </Tabs.Trigger>
                   ))}
                 </Tabs.List>
@@ -428,15 +408,15 @@ export default function UnifiedUI({
                   <Tabs.Content value="missions" className="focus:outline-none">
                     <MissionsContent {...missionsProps} />
                   </Tabs.Content>
-                  
+
                   <Tabs.Content value="probe" className="focus:outline-none">
                     <ProbeLauncherContent {...probeLauncherProps} />
                   </Tabs.Content>
-                  
+
                   <Tabs.Content value="camera" className="focus:outline-none">
                     <CameraContent cameraPresets={cameraPresets} onCameraPreset={onCameraPreset} />
                   </Tabs.Content>
-                  
+
                   <Tabs.Content value="levels" className="focus:outline-none">
                     <LevelsContent {...levelsProps} />
                   </Tabs.Content>

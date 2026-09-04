@@ -18,6 +18,7 @@ import LoadingScreen from '@/app/planetarium/components/LoadingScreen';
 import WelcomeOverlay from '@/app/planetarium/components/WelcomeOverlay';
 import ToastStack, { useToasts } from '@/app/planetarium/components/Toasts';
 import { HoverLabelHost, FocusBadge } from '@/app/planetarium/components/SceneOverlays';
+import { CloseIcon } from '@/app/planetarium/components/icons';
 
 const WELCOME_STORAGE_KEY = 'gravity-assist:welcomed';
 
@@ -387,7 +388,7 @@ function generateCirclePath(rx, ry, rz, r, vx, vy, vz, centralBody, numPoints) {
   return points;
 }
 
-function createTrajectoryLine(trajectory, scene, color = 0xFF6600) {
+function createTrajectoryLine(trajectory, scene, color = 0xC6A44A) {
   if (!trajectory || trajectory.length < 2) return null;
 
   const points = [];
@@ -500,11 +501,20 @@ function clearSolarFlares(flareGroup) {
   }
 }
 
+function DebugRow({ label, children }) {
+  return (
+    <div className="flex justify-between gap-4">
+      <span className="text-dim">{label}</span>
+      <span className="text-fg-soft">{children}</span>
+    </div>
+  );
+}
+
 const PlanetariumScene = () => {
   const mountRef = useRef(null);
   const [isClient, setIsClient] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [loadingStatus, setLoadingStatus] = useState('Initializing…');
+  const [loadingStatus, setLoadingStatus] = useState('Initializing');
   const [loadProgress, setLoadProgress] = useState(0);
   const [timeScale, setTimeScale] = useState(1000); // Default speed
   const MIN_TIME_SCALE = 100;
@@ -641,8 +651,8 @@ const PlanetariumScene = () => {
     // Add probe mesh - make it visible and larger with better visualization
     const geometry = new THREE.SphereGeometry(1.0, 16, 16);
     const material = new THREE.MeshStandardMaterial({ 
-      color: 0x00ff00,
-      emissive: 0x00ff00,
+      color: 0x7FB37E,
+      emissive: 0x7FB37E,
       emissiveIntensity: 0.8,
       metalness: 0.3,
       roughness: 0.7
@@ -655,7 +665,7 @@ const PlanetariumScene = () => {
     // Add glow effect with a larger outer sphere
     const glowGeometry = new THREE.SphereGeometry(1.5, 16, 16);
     const glowMaterial = new THREE.MeshBasicMaterial({
-      color: 0x00ff00,
+      color: 0x7FB37E,
       transparent: true,
       opacity: 0.2
     });
@@ -680,7 +690,7 @@ const PlanetariumScene = () => {
     const trajectoryLine = createTrajectoryLine(
       probeTrajectoryPointsRef.current.get(probe.id),
       sceneRef.current,
-      0x00FF00 // Green for launched probes
+      0x7FB37E // Muted green for launched probes
     );
     if (trajectoryLine) {
       probeTrajectoryLinesRef.current.set(probe.id, trajectoryLine);
@@ -702,7 +712,6 @@ const PlanetariumScene = () => {
     // Velocities are stored in units of ~1000 km/s (Earth's 29.8 km/s is 0.0298).
     const speedKmPerSec = Math.hypot(probe.velocity.x, probe.velocity.y, probe.velocity.z) * 1000;
     pushToastRef.current?.(`${probeName} launched`, {
-      icon: '🚀',
       tone: 'success',
       detail: `${speedKmPerSec.toFixed(1)} km/s · trailing a green track`
     });
@@ -747,7 +756,7 @@ const PlanetariumScene = () => {
     // Start loading
     safeSetIsLoading(true);
     setLoadProgress(0);
-    safeSetLoadingStatus('Creating physics engine…');
+    safeSetLoadingStatus('Creating physics engine');
     safeSetProgress(5);
     
     // Create physics worker
@@ -814,7 +823,7 @@ const PlanetariumScene = () => {
     const loadingManager = new THREE.LoadingManager();
     loadingManager.onProgress = (url, loaded, total) => {
       // Textures occupy the 15-85% band of the bar.
-      safeSetLoadingStatus('Loading planet textures…');
+      safeSetLoadingStatus('Loading planet textures');
       safeSetProgress(15 + Math.round((loaded / Math.max(1, total)) * 70));
     };
     loadingManager.onLoad = () => {
@@ -824,7 +833,7 @@ const PlanetariumScene = () => {
     const textureLoader = new THREE.TextureLoader(loadingManager);
     const clock = new THREE.Clock();
     
-    safeSetLoadingStatus('Setting up renderer…');
+    safeSetLoadingStatus('Setting up renderer');
     safeSetProgress(12);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -1723,7 +1732,7 @@ const PlanetariumScene = () => {
       // Labels will be added via the PlanetLabels component
     }
     
-    safeSetLoadingStatus('Starting physics simulation…');
+    safeSetLoadingStatus('Starting physics simulation');
     safeSetProgress(90);
 
     // Initialize physics worker after a short delay to ensure it's ready
@@ -2490,10 +2499,10 @@ const PlanetariumScene = () => {
       if (!setCameraTargetNameRef.current) return;
       setCameraTargetNameRef.current((current) => {
         if (current === bodyName) {
-          pushToastRef.current?.('Camera released', { icon: '📷' });
+          pushToastRef.current?.('Camera released');
           return null;
         }
-        pushToastRef.current?.(`Following ${bodyName}`, { icon: '📷' });
+        pushToastRef.current?.(`Following ${bodyName}`);
         return bodyName;
       });
     };
@@ -2859,7 +2868,6 @@ const PlanetariumScene = () => {
 
   const handleMissionComplete = useCallback((mission) => {
     pushToastRef.current?.(`Mission complete: ${mission.title}`, {
-      icon: '🎯',
       tone: 'success',
       detail: mission.description,
       duration: 5000
@@ -2871,10 +2879,10 @@ const PlanetariumScene = () => {
     // If clicking the same planet, unlock camera. Otherwise, focus on new planet.
     if (cameraTargetName === planetName) {
       setCameraTargetName(null);
-      pushToastRef.current?.('Camera released', { icon: '📷' });
+      pushToastRef.current?.('Camera released');
     } else {
       setCameraTargetName(planetName);
-      pushToastRef.current?.(`Following ${planetName}`, { icon: '📷' });
+      pushToastRef.current?.(`Following ${planetName}`);
     }
     setIsInfoVisible(false);
   }, [cameraTargetName]);
@@ -3005,7 +3013,7 @@ const PlanetariumScene = () => {
       {(!isClient || isLoading) && (
         <LoadingScreen
           progress={isClient ? loadProgress : 0}
-          status={isClient ? loadingStatus : 'Initializing…'}
+          status={isClient ? loadingStatus : 'Initializing'}
         />
       )}
       
@@ -3093,74 +3101,47 @@ const PlanetariumScene = () => {
 
       {/* Debug Overlay */}
       {isClient && !isLoading && debugMode && (
-        <div className="fixed top-2 sm:top-4 right-2 sm:right-4 bg-black/80 backdrop-blur-sm text-white rounded-lg p-2 sm:p-3 z-40 font-mono text-[10px] sm:text-xs border border-slate-700/50 min-w-[150px] sm:min-w-[180px]">
-          <div className="flex items-center justify-between mb-2 border-b border-slate-700/50 pb-2">
-            <span className="text-amber-400 font-bold text-xs sm:text-sm">Debug Info</span>
-            <button 
+        <div className="fixed top-2 sm:top-4 right-2 sm:right-4 bg-surface/95 backdrop-blur-md text-fg rounded-lg p-3 z-40 font-mono text-[11px] border border-line min-w-[170px] shadow-lg">
+          <div className="flex items-center justify-between mb-2 border-b border-line pb-2">
+            <span className="text-dim uppercase tracking-wider text-[10px]">Performance</span>
+            <button
               onClick={() => setDebugMode(false)}
-              className="text-slate-400 hover:text-white p-1 touch-manipulation"
+              className="text-dim hover:text-fg transition-colors -mr-1 p-1 touch-manipulation"
+              aria-label="Close performance stats"
             >
-              ✕
+              <CloseIcon className="w-3 h-3" />
             </button>
           </div>
           <div className="space-y-1">
-            <div className="flex justify-between">
-              <span className="text-slate-400">FPS:</span>
-              <span className={debugStats.fps < 30 ? 'text-red-400' : debugStats.fps < 50 ? 'text-yellow-400' : 'text-green-400'}>
+            {/* Only the two figures with a healthy range are colour-coded. */}
+            <DebugRow label="FPS">
+              <span className={
+                debugStats.fps < 30 ? 'text-negative' : debugStats.fps < 50 ? 'text-caution' : 'text-positive'
+              }>
                 {debugStats.fps}
               </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Frame:</span>
-              <span className={debugStats.frameTime > 33 ? 'text-red-400' : debugStats.frameTime > 16 ? 'text-yellow-400' : 'text-green-400'}>
+            </DebugRow>
+            <DebugRow label="Frame">
+              <span className={
+                debugStats.frameTime > 33 ? 'text-negative' : debugStats.frameTime > 16 ? 'text-caution' : 'text-positive'
+              }>
                 {debugStats.frameTime || 0}ms
               </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Bodies:</span>
-              <span className="text-blue-400">{debugStats.bodies}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Probes:</span>
-              <span className="text-purple-400">{debugStats.probes}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Meshes:</span>
-              <span className="text-cyan-400">{debugStats.meshes}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Triangles:</span>
-              <span className="text-orange-400">{(debugStats.triangles || 0).toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Draw Calls:</span>
-              <span className="text-pink-400">{debugStats.drawCalls || 0}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Textures:</span>
-              <span className="text-emerald-400">{debugStats.textures || 0}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Geometries:</span>
-              <span className="text-indigo-400">{debugStats.geometries || 0}</span>
-            </div>
-            {debugStats.memory > 0 && (
-              <div className="flex justify-between border-t border-slate-700/50 pt-1 mt-1">
-                <span className="text-slate-400">Memory:</span>
-                <span className="text-yellow-400">{debugStats.memory} MB</span>
-              </div>
-            )}
-            <div className="flex justify-between border-t border-slate-700/50 pt-1 mt-1">
-              <span className="text-slate-400">Level:</span>
-              <span className="text-white">{currentLevelId}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Time Scale:</span>
-              <span className="text-white">{timeScale}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Paused:</span>
-              <span className={isPaused ? 'text-red-400' : 'text-green-400'}>{isPaused ? 'Yes' : 'No'}</span>
+            </DebugRow>
+            <DebugRow label="Bodies">{debugStats.bodies}</DebugRow>
+            <DebugRow label="Probes">{debugStats.probes}</DebugRow>
+            <DebugRow label="Meshes">{debugStats.meshes}</DebugRow>
+            <DebugRow label="Triangles">{(debugStats.triangles || 0).toLocaleString()}</DebugRow>
+            <DebugRow label="Draw calls">{debugStats.drawCalls || 0}</DebugRow>
+            <DebugRow label="Textures">{debugStats.textures || 0}</DebugRow>
+            <DebugRow label="Geometries">{debugStats.geometries || 0}</DebugRow>
+            {debugStats.memory > 0 && <DebugRow label="Memory">{debugStats.memory} MB</DebugRow>}
+            <div className="border-t border-line pt-1 mt-1 space-y-1">
+              <DebugRow label="Level">{currentLevelId}</DebugRow>
+              <DebugRow label="Speed">{timeScale}</DebugRow>
+              <DebugRow label="Paused">
+                <span className={isPaused ? 'text-caution' : 'text-fg-soft'}>{isPaused ? 'Yes' : 'No'}</span>
+              </DebugRow>
             </div>
           </div>
         </div>

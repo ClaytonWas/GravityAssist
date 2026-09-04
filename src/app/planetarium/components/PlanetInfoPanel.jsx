@@ -65,7 +65,7 @@ export default function PlanetInfoPanel({
         <Dialog.Content
           ref={panelRef}
           className={cn(
-            "fixed top-0 right-0 h-full bg-slate-900/98 backdrop-blur-xl border-l border-slate-700/50 shadow-2xl",
+            "fixed top-0 right-0 h-full bg-surface/98 backdrop-blur-md border-l border-line shadow-2xl",
             "focus:outline-none overflow-hidden flex flex-col z-[500]",
             "data-[state=open]:animate-slideInRight data-[state=closed]:animate-slideOutRight"
           )}
@@ -79,26 +79,26 @@ export default function PlanetInfoPanel({
             onMouseDown={() => setIsResizing(true)}
             className={cn(
               "absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize transition-colors z-10",
-              isResizing ? "bg-blue-500" : "bg-transparent hover:bg-blue-500/50"
+              isResizing ? "bg-accent" : "bg-transparent hover:bg-line-strong"
             )}
           />
 
           {/* Header */}
-          <div className="flex-shrink-0 bg-gradient-to-r from-blue-600/10 via-purple-600/10 to-pink-600/10 border-b border-slate-700/50 p-4">
+          <div className="flex-shrink-0 border-b border-line p-4">
             <div className="flex items-start justify-between">
               <div>
-                <Dialog.Title className="text-xl font-bold text-white">
+                <Dialog.Title className="text-lg font-medium text-fg">
                   {selectedBody.name}
                 </Dialog.Title>
                 {planetInfo?.type && (
-                  <Dialog.Description className="text-sm text-slate-400 mt-0.5">
+                  <Dialog.Description className="text-sm text-muted mt-0.5">
                     {planetInfo.type}
                   </Dialog.Description>
                 )}
               </div>
               <Dialog.Close asChild>
                 <button
-                  className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                  className="w-8 h-8 flex items-center justify-center rounded-md text-dim hover:text-fg hover:bg-raised transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                   aria-label="Close"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -114,33 +114,33 @@ export default function PlanetInfoPanel({
             {planetInfo ? (
               <>
                 {/* Description */}
-                <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
-                  <p className="text-sm text-slate-300 leading-relaxed">
+                <div>
+                  <p className="text-sm text-fg-soft leading-relaxed">
                     {planetInfo.description}
                   </p>
                 </div>
 
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 gap-3">
-                  <StatCard label="Distance from Sun" value={planetInfo.distance} color="blue" />
-                  <StatCard label="Orbital Period" value={planetInfo.orbitalPeriod} color="purple" />
-                  <StatCard label="Day Length" value={planetInfo.dayLength} color="pink" />
-                  <StatCard label="Moons" value={planetInfo.moons} color="cyan" />
+                  <StatCard label="Distance from Sun" value={planetInfo.distance} />
+                  <StatCard label="Orbital Period" value={planetInfo.orbitalPeriod} />
+                  <StatCard label="Day Length" value={planetInfo.dayLength} />
+                  <StatCard label="Moons" value={planetInfo.moons} />
                 </div>
 
                 {/* Composition Section */}
                 {(hasAtmosphere || hasCore) && (
-                  <div className="bg-slate-800/40 rounded-xl p-4 border border-slate-700/50">
+                  <div className="rounded-md p-4 border border-line">
                     {showCompositionTabs ? (
                       <Tabs.Root value={compositionTab} onValueChange={setCompositionTab}>
                         <Tabs.List className="flex gap-2 mb-4">
                           <Tabs.Trigger
                             value="core"
                             className={cn(
-                              "px-3 py-1.5 text-xs font-medium rounded-lg transition-all",
+                              "px-3 py-1.5 text-xs rounded-md transition-colors border",
                               compositionTab === 'core'
-                                ? "bg-blue-500/20 text-blue-400 border border-blue-500/50"
-                                : "text-slate-400 hover:text-white border border-transparent"
+                                ? "bg-raised text-fg border-line-strong"
+                                : "text-muted hover:text-fg border-transparent"
                             )}
                           >
                             Core
@@ -148,10 +148,10 @@ export default function PlanetInfoPanel({
                           <Tabs.Trigger
                             value="atmosphere"
                             className={cn(
-                              "px-3 py-1.5 text-xs font-medium rounded-lg transition-all",
+                              "px-3 py-1.5 text-xs rounded-md transition-colors border",
                               compositionTab === 'atmosphere'
-                                ? "bg-blue-500/20 text-blue-400 border border-blue-500/50"
-                                : "text-slate-400 hover:text-white border border-transparent"
+                                ? "bg-raised text-fg border-line-strong"
+                                : "text-muted hover:text-fg border-transparent"
                             )}
                           >
                             Atmosphere
@@ -173,7 +173,7 @@ export default function PlanetInfoPanel({
                       </Tabs.Root>
                     ) : (
                       <>
-                        <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-4">
+                        <h3 className="text-[11px] text-dim uppercase tracking-wider mb-4">
                           {hasCore ? 'Core Composition' : 'Atmospheric Composition'}
                         </h3>
                         <CompositionChart 
@@ -188,13 +188,13 @@ export default function PlanetInfoPanel({
                 {/* Fun Facts */}
                 {planetInfo.funFacts && (
                   <div className="space-y-2">
-                    <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+                    <h3 className="text-[11px] text-dim uppercase tracking-wider">
                       Fun Facts
                     </h3>
                     <ul className="space-y-2">
                       {planetInfo.funFacts.map((fact, i) => (
-                        <li key={i} className="flex gap-2 text-sm text-slate-300">
-                          <span className="text-blue-400 flex-shrink-0">•</span>
+                        <li key={i} className="flex gap-2 text-sm text-fg-soft">
+                          <span className="text-line-strong flex-shrink-0">&bull;</span>
                           <span>{fact}</span>
                         </li>
                       ))}
@@ -205,40 +205,40 @@ export default function PlanetInfoPanel({
             ) : (
               /* Probe or unknown body */
               <div className="space-y-4">
-                <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
-                  <h3 className="font-medium text-white mb-2">Probe Data</h3>
+                <div className="rounded-md p-4 border border-line">
+                  <h3 className="text-sm text-fg mb-2">Probe Data</h3>
                   {selectedBody.position && (
                     <div className="space-y-1 text-sm font-mono">
                       <div className="flex justify-between">
-                        <span className="text-slate-400">X:</span>
-                        <span className="text-blue-400">{selectedBody.position.x.toFixed(2)}</span>
+                        <span className="text-muted">X:</span>
+                        <span className="text-fg-soft">{selectedBody.position.x.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-400">Y:</span>
-                        <span className="text-purple-400">{selectedBody.position.y.toFixed(2)}</span>
+                        <span className="text-muted">Y:</span>
+                        <span className="text-fg-soft">{selectedBody.position.y.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-400">Z:</span>
-                        <span className="text-pink-400">{selectedBody.position.z.toFixed(2)}</span>
+                        <span className="text-muted">Z:</span>
+                        <span className="text-fg-soft">{selectedBody.position.z.toFixed(2)}</span>
                       </div>
                     </div>
                   )}
                 </div>
                 {selectedBody.velocity && (
-                  <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
-                    <h3 className="font-medium text-white mb-2">Velocity</h3>
+                  <div className="rounded-md p-4 border border-line">
+                    <h3 className="text-sm text-fg mb-2">Velocity</h3>
                     <div className="space-y-1 text-sm font-mono">
                       <div className="flex justify-between">
-                        <span className="text-slate-400">VX:</span>
-                        <span className="text-emerald-400">{selectedBody.velocity.x.toFixed(6)}</span>
+                        <span className="text-muted">VX:</span>
+                        <span className="text-fg-soft">{selectedBody.velocity.x.toFixed(6)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-400">VY:</span>
-                        <span className="text-emerald-400">{selectedBody.velocity.y.toFixed(6)}</span>
+                        <span className="text-muted">VY:</span>
+                        <span className="text-fg-soft">{selectedBody.velocity.y.toFixed(6)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-400">VZ:</span>
-                        <span className="text-emerald-400">{selectedBody.velocity.z.toFixed(6)}</span>
+                        <span className="text-muted">VZ:</span>
+                        <span className="text-fg-soft">{selectedBody.velocity.z.toFixed(6)}</span>
                       </div>
                     </div>
                   </div>
@@ -252,23 +252,13 @@ export default function PlanetInfoPanel({
   );
 }
 
-function StatCard({ label, value, color }) {
-  const colorClasses = {
-    blue: 'text-blue-400 hover:border-blue-500/50',
-    purple: 'text-purple-400 hover:border-purple-500/50',
-    pink: 'text-pink-400 hover:border-pink-500/50',
-    cyan: 'text-cyan-400 hover:border-cyan-500/50'
-  };
-
+function StatCard({ label, value }) {
   return (
-    <div className={cn(
-      "bg-slate-800/40 rounded-lg p-3 border border-slate-700/30 transition-colors",
-      colorClasses[color]
-    )}>
-      <div className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">
+    <div className="rounded-md p-3 border border-line">
+      <div className="text-[10px] text-dim uppercase tracking-wider mb-1">
         {label}
       </div>
-      <div className={cn("text-sm font-semibold", colorClasses[color])}>
+      <div className="text-sm text-fg-soft">
         {value}
       </div>
     </div>
