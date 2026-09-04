@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Collapsible from '@radix-ui/react-collapsible';
 import * as Slider from '@radix-ui/react-slider';
@@ -18,34 +18,51 @@ const MISSIONS = [
   { id: 'outer-planets', title: 'Outer Planets', description: 'Reach Saturn, Uranus, or Neptune', target: 'Saturn' }
 ];
 
-function MissionsContent({ probes, bodies }) {
+const MISSION_ARRIVAL_DISTANCE = 100;
+
+// Simulation velocities are stored in units of ~1000 km/s
+// (Earth's 29.8 km/s orbital speed is stored as 0.0298).
+const KM_PER_SEC_PER_UNIT = 1000;
+
+function MissionsContent({ probes, bodies, onMissionComplete }) {
   const [missions, setMissions] = useState(MISSIONS.map(m => ({ ...m, status: 'pending' })));
+  const completeCallbackRef = useRef(onMissionComplete);
+
+  useEffect(() => {
+    completeCallbackRef.current = onMissionComplete;
+  }, [onMissionComplete]);
 
   useEffect(() => {
     if (!probes?.length || !bodies?.length) return;
-    
+
     const interval = setInterval(() => {
+      const justCompleted = [];
+
       setMissions(prev => prev.map(mission => {
         if (mission.status === 'completed') return mission;
         const target = bodies.find(b => b?.name === mission.target);
         if (!target?.position) return mission;
-        
+
         const near = probes.some(probe => {
           if (!probe?.position) return false;
-          const d = Math.sqrt(
-            Math.pow(probe.position.x - target.position.x, 2) +
-            Math.pow(probe.position.y - target.position.y, 2) +
-            Math.pow(probe.position.z - target.position.z, 2)
+          const d = Math.hypot(
+            probe.position.x - target.position.x,
+            probe.position.y - target.position.y,
+            probe.position.z - target.position.z
           );
-          return d < 100;
+          return d < MISSION_ARRIVAL_DISTANCE;
         });
-        
-        if (near && mission.status === 'pending') return { ...mission, status: 'in-progress' };
-        if (near && mission.status === 'in-progress') return { ...mission, status: 'completed' };
-        return mission;
+
+        if (!near) return mission;
+        if (mission.status === 'pending') return { ...mission, status: 'in-progress' };
+        justCompleted.push(mission);
+        return { ...mission, status: 'completed' };
       }));
+
+      // Announce outside the updater so the callback never runs during render.
+      justCompleted.forEach(mission => completeCallbackRef.current?.(mission));
     }, 1000);
-    
+
     return () => clearInterval(interval);
   }, [probes, bodies]);
 
@@ -133,7 +150,6 @@ function ProbeLauncherContent({ earth, allBodies, timeScale, onLaunchProbe, onUp
     };
 
     onLaunchProbe?.({
-      name: `Probe ${Date.now()}`,
       position: { ...earth.position },
       velocity: {
         x: earth.velocity.x + dir.x * speed[0],
@@ -146,64 +162,71 @@ function ProbeLauncherContent({ earth, allBodies, timeScale, onLaunchProbe, onUp
   };
 
   if (!earth) {
-    return <div className="text-sm text-slate-400 p-4">Waiting for Earth data...</div>;
+    return <div className="text-sm text-slate-400 p-4">Waiting for Earth’s orbital data…</div>;
   }
 
   return (
     <div className="space-y-5">
-      <SliderControl 
-        label="Launch Speed" 
-        value={speed} 
+      <p className="text-xs text-slate-400 leading-relaxed">
+        Burns are relative to Earth’s own motion. Arm a launch to see where the probe drifts,
+        then tune the aim until the orange line reaches your target.
+      </p>
+
+      <SliderControl
+        label="Burn speed"
+        value={speed}
         onChange={setSpeed}
-        min={0.001} 
-        max={0.15} 
+        min={0.001}
+        max={0.15}
         step={0.001}
-        format={v => v.toFixed(4)}
+        format={v => `${(v * KM_PER_SEC_PER_UNIT).toFixed(1)} km/s`}
       />
-      <SliderControl 
-        label="Azimuth" 
-        value={azimuth} 
+      <SliderControl
+        label="Azimuth"
+        value={azimuth}
         onChange={setAzimuth}
-        min={0} 
-        max={360} 
+        min={0}
+        max={360}
         step={1}
         format={v => `${v.toFixed(0)}°`}
       />
-      <SliderControl 
-        label="Elevation" 
-        value={elevation} 
+      <SliderControl
+        label="Elevation"
+        value={elevation}
         onChange={setElevation}
-        min={-90} 
-        max={90} 
+        min={-90}
+        max={90}
         step={1}
         format={v => `${v.toFixed(0)}°`}
       />
-      
-      <div className="flex gap-2 pt-2">
+
+      <div className="flex gap-2 pt-1">
         <button
           onClick={() => setIsLaunching(!isLaunching)}
           className={cn(
             "flex-1 py-2.5 px-4 rounded-lg font-medium text-sm transition-all",
-            isLaunching 
-              ? "bg-amber-500 hover:bg-amber-400 text-black" 
+            "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+            isLaunching
+              ? "bg-slate-700 hover:bg-slate-600 text-white"
               : "bg-blue-600 hover:bg-blue-500 text-white"
           )}
         >
-          {isLaunching ? 'Cancel' : 'Prepare Launch'}
+          {isLaunching ? 'Cancel' : 'Prepare launch'}
         </button>
         {isLaunching && (
           <button
             onClick={handleLaunch}
-            className="flex-1 py-2.5 px-4 rounded-lg font-medium text-sm bg-emerald-500 hover:bg-emerald-400 text-white transition-all"
+            className="flex-1 py-2.5 px-4 rounded-lg font-medium text-sm bg-emerald-500 hover:bg-emerald-400 text-white transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
           >
             🚀 Launch
           </button>
         )}
       </div>
-      
+
       {isLaunching && (
-        <p className="text-xs text-slate-400 text-center">
-          Orange trajectory preview shown
+        <p className="text-xs text-amber-400/90 text-center flex items-center justify-center gap-1.5">
+          <span className="w-6 h-0.5 rounded-full bg-amber-500 inline-block" />
+          predicted trajectory
         </p>
       )}
     </div>
@@ -321,13 +344,17 @@ function LevelsContent({ currentLevelId, availableLevels, onLevelChange }) {
 // ============================================================================
 export default function UnifiedUI({ 
   simulationMode,
+  open,
+  onOpenChange,
   missionsProps,
   probeLauncherProps,
   cameraPresets,
   onCameraPreset,
   levelsProps
 }) {
-  const [isOpen, setIsOpen] = useState(true);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(true);
+  const isOpen = open ?? uncontrolledOpen;
+  const setIsOpen = onOpenChange ?? setUncontrolledOpen;
   const [activeTab, setActiveTab] = useState('missions');
 
   const tabs = [
@@ -344,16 +371,28 @@ export default function UnifiedUI({
           <div className="bg-slate-900/95 backdrop-blur-xl rounded-xl border border-slate-700/50 shadow-2xl overflow-hidden">
             {/* Header */}
             <Collapsible.Trigger asChild>
-              <button className="w-full flex items-center justify-between p-3 hover:bg-slate-800/50 transition-colors">
-                <span className="font-semibold text-sm text-white">Controls</span>
-                <svg 
-                  className={cn("w-4 h-4 text-slate-400 transition-transform duration-200", isOpen && "rotate-180")}
-                  fill="none" 
-                  stroke="currentColor" 
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+              <button className="w-full flex items-center justify-between gap-2 p-3 hover:bg-slate-800/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset">
+                <span className="flex items-baseline gap-2 min-w-0">
+                  <span className="font-semibold text-sm text-white">Mission control</span>
+                  {!isOpen && (
+                    <span className="text-xs text-slate-500 truncate">
+                      {tabs.find(t => t.id === activeTab)?.label}
+                    </span>
+                  )}
+                </span>
+                <span className="flex items-center gap-2 flex-shrink-0">
+                  <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[10px] text-slate-500 font-medium">
+                    C
+                  </kbd>
+                  <svg 
+                    className={cn("w-4 h-4 text-slate-400 transition-transform duration-200", isOpen && "rotate-180")}
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </span>
               </button>
             </Collapsible.Trigger>
 
@@ -362,36 +401,25 @@ export default function UnifiedUI({
                 {/* Tab List */}
                 <Tabs.List className="flex border-t border-b border-slate-700/50 bg-slate-800/30">
                   {tabs.map(tab => (
-                    <Tooltip.Root key={tab.id}>
-                      <Tooltip.Trigger asChild>
-                        <Tabs.Trigger
-                          value={tab.id}
-                          className={cn(
-                            "flex-1 py-2.5 text-center transition-all relative",
-                            "text-slate-400 hover:text-white hover:bg-slate-800/50",
-                            "data-[state=active]:text-white data-[state=active]:bg-slate-800/70",
-                            "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset"
-                          )}
-                        >
-                          <span className="text-base">{tab.icon}</span>
-                          <div 
-                            className={cn(
-                              "absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 transition-transform duration-200",
-                              activeTab === tab.id ? "scale-x-100" : "scale-x-0"
-                            )} 
-                          />
-                        </Tabs.Trigger>
-                      </Tooltip.Trigger>
-                      <Tooltip.Portal>
-                        <Tooltip.Content
-                          className="bg-slate-800 text-white text-xs py-1 px-2 rounded shadow-xl border border-slate-700 z-[200]"
-                          sideOffset={5}
-                        >
-                          {tab.label}
-                          <Tooltip.Arrow className="fill-slate-800" />
-                        </Tooltip.Content>
-                      </Tooltip.Portal>
-                    </Tooltip.Root>
+                    <Tabs.Trigger
+                      key={tab.id}
+                      value={tab.id}
+                      className={cn(
+                        "flex-1 py-2 flex flex-col items-center gap-0.5 transition-all relative",
+                        "text-slate-400 hover:text-white hover:bg-slate-800/50",
+                        "data-[state=active]:text-white data-[state=active]:bg-slate-800/70",
+                        "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset"
+                      )}
+                    >
+                      <span className="text-sm leading-none">{tab.icon}</span>
+                      <span className="text-[10px] font-medium leading-none">{tab.label}</span>
+                      <span
+                        className={cn(
+                          "absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 transition-transform duration-200",
+                          activeTab === tab.id ? "scale-x-100" : "scale-x-0"
+                        )} 
+                      />
+                    </Tabs.Trigger>
                   ))}
                 </Tabs.List>
 
@@ -421,4 +449,3 @@ export default function UnifiedUI({
     </Tooltip.Provider>
   );
 }
-
